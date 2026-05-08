@@ -294,8 +294,8 @@ def evaluate_memory_gate(userId, round_num, current_attrs, is_choice_right):
     import json
     import os
 
-    # 1. Round 0-3: 强制通过
-    if round_num < 4:
+    # 1. Round 0-1: 强制通过（无历史数据）
+    if round_num < 2:
         return {
             "gate_score": 1.0,
             "should_update": True,
@@ -307,7 +307,48 @@ def evaluate_memory_gate(userId, round_num, current_attrs, is_choice_right):
             "history_count": 0
         }
 
-    # 2. Round 4: 启用长短记忆门控
+    # 2. Round 2-3: 只使用STM分数（短期记忆）
+    elif round_num in [2, 3]:
+        # 加载History
+        history_file = f"{MEMORY_BASE_DIR}/stm_history/user_{userId}.json"
+
+        if os.path.exists(history_file):
+            with open(history_file, 'r', encoding='utf-8') as f:
+                history_data = json.load(f)
+            history = history_data.get("history", [])
+        else:
+            history = []
+
+        # 提取前一轮的属性（短期记忆）
+        previous_attrs = {}
+        for entry in history:
+            if entry["round"] == round_num - 1:
+                previous_attrs = entry.get("extracted_attrs", {})
+                break
+
+        # 只计算STM分数（与前一轮比较）
+        stm_score = compute_stm_score(current_attrs, previous_attrs)
+
+        # gate_score直接等于stm_score（不加权LTM）
+        gate_score = stm_score
+
+        # 阈值
+        threshold = 0.5 if is_choice_right else 0.6
+
+        should_update = gate_score >= threshold
+
+        return {
+            "gate_score": gate_score,
+            "should_update": should_update,
+            "stm_score": stm_score,
+            "ltm_score": 0.0,  # Round 2-3不使用LTM
+            "threshold": threshold,
+            "weights": {"alpha": 0.0, "beta": 1.0},  # 只用STM
+            "round_num": round_num,
+            "history_count": len(history)
+        }
+
+    # 3. Round 4: 启用长短记忆门控（STM + LTM加权）
     elif round_num == 4:
         # 加载History（从stm_history而不是stm）
         history_file = f"{MEMORY_BASE_DIR}/stm_history/user_{userId}.json"
