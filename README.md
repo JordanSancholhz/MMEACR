@@ -30,3 +30,8 @@ request.py是负责gpt系列的api, request1.py是负责glm系列的api(这里�
 ```bash
 bash run_train_and_test.sh
 ```
+
+## bash 运行训练和测试Reflection
+```bash
+bash run_train_and_test_for_reflection.sh
+```
