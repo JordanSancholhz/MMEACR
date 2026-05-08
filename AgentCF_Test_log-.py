@@ -29,7 +29,7 @@ from config import (
 )
 from dataPrepare import createInterDF, createItemDF, createRandomDF
 from prompt import system_prompt_template_evaluation_basic
-from request1 import async_client
+from request import async_client
 
 # ✅ 创建日志目录
 LLM_LOG_DIR = f"{LOG_DIR}/llm_interactions"
