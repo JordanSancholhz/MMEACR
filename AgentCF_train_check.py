@@ -9,7 +9,7 @@ from fuzzywuzzy import fuzz
 import shutil
 import os
 from dataPrepare import createInterDF, createItemDF, createRandomDF
-from request1 import async_client
+from request import async_client
 import json
 import asyncio
 import threading
