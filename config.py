@@ -90,35 +90,30 @@ TRAIN_CONFIGS = {
     }
 }
 
-# ============= 获取当前配置 =============
-# ============= 实验后缀配置（用于区分不同实验）=============
-import os
-EXP_SUFFIX = os.environ.get('EXP_SUFFIX', '')  # 从环境变量读取实验后缀
-
-# ============= 评估模式配置（加入 EXP_SUFFIX）=============
+# ============= 评估模式配置 =============
 EVAL_CONFIGS = {
     "basic": {
-        "method_name": f"AgentCF_{DATASET_DIR}_basic",
-        "memory_dir": f"memory{EXP_SUFFIX}/AgentCF_{DATASET_DIR}_basic",
+        "method_name": f"AgentCF_{DATASET_DIR}_basic",  # ✅ 修改：使用 DATASET_DIR
+        "memory_dir": f"memory/AgentCF_{DATASET_DIR}_basic",  # ✅ 修改：使用 DATASET_DIR
         "use_embedding": False,
         "use_llm": True
     },
     "description": {
-        "method_name": f"AgentCF_{DATASET_DIR}_description",
-        "memory_dir": f"memory{EXP_SUFFIX}/AgentCF_{DATASET_DIR}_description",
+        "method_name": f"AgentCF_{DATASET_DIR}_description",  # ✅ 修改：使用 DATASET_DIR
+        "memory_dir": f"memory/AgentCF_{DATASET_DIR}_description",  # ✅ 修改：使用 DATASET_DIR
         "use_embedding": False,
         "use_llm": True
     },
     "embedding": {
-        "method_name": f"AgentCF_{DATASET_DIR}_embedding",
-        "embedding_dir": f"dataset/embeddings/{DATASET_DIR}",
+        "method_name": f"AgentCF_{DATASET_DIR}_embedding",  # ✅ 修改：使用 DATASET_DIR
+        "embedding_dir": f"dataset/embeddings/{DATASET_DIR}",  # ✅ 修改：使用 DATASET_DIR
         "use_embedding": True,
         "use_llm": False
     },
     "rrf": {
-        "method_name": f"AgentCF_{DATASET_DIR}_rrf",
-        "memory_dir": f"memory{EXP_SUFFIX}/AgentCF_{DATASET_DIR}_description",
-        "embedding_dir": f"dataset/embeddings/{DATASET_DIR}",
+        "method_name": f"AgentCF_{DATASET_DIR}_rrf",  # ✅ 修改：使用 DATASET_DIR
+        "memory_dir": f"memory/AgentCF_{DATASET_DIR}_description",  # ✅ 修改：使用 DATASET_DIR
+        "embedding_dir": f"dataset/embeddings/{DATASET_DIR}",  # ✅ 修改：使用 DATASET_DIR
         "use_embedding": True,
         "use_llm": True,
         "fusion_method": "RRF",
@@ -126,6 +121,7 @@ EVAL_CONFIGS = {
     }
 }
 
+# ============= 获取当前配置 =============
 train_config = TRAIN_CONFIGS[TRAIN_MODE]
 eval_config = EVAL_CONFIGS[EVAL_MODE]
 
@@ -135,10 +131,10 @@ eval_method_name = eval_config['method_name']
 # 训练相关配置（仅用于训练脚本）
 exp_name = train_config["memory_name"]
 initial_memory_dir = train_config["initial_dir"]
-MEMORY_BASE_DIR = f"memory{EXP_SUFFIX}/{exp_name}"
+MEMORY_BASE_DIR = f"memory/{exp_name}"
 
-# ✅ 日志输出目录（使用 DATASET_DIR + EXP_SUFFIX）
-LOG_DIR = f"log{EXP_SUFFIX}/{DATASET_DIR}"
+# ✅ 日志输出目录（使用 DATASET_DIR）
+LOG_DIR = f"log/{DATASET_DIR}"
 
 # ============= 模型配置 =============
 candidate_num = 10
@@ -153,7 +149,7 @@ save_ranking_results = True
 # 断点续训配置
 
 # ============= 断点续训配置 =============
-CHECKPOINT_FILE = f"log{EXP_SUFFIX}/{DATASET_DIR}/checkpoint.json"
+CHECKPOINT_FILE = f"log/{DATASET_DIR}/checkpoint.json"
 
 # ============= 异步配置 =============
 async_training_batch_size = 4
@@ -214,10 +210,10 @@ ablation_train_config = ABLATION_TRAIN_CONFIGS[ablation_config_key]
 ablation_exp_name = ablation_train_config["memory_name"]
 ablation_initial_memory_dir = ablation_train_config["initial_dir"]
 ABLATION_MEMORY_DIR = f"memory/{ablation_exp_name}"
-ABLATION_LOG_DIR = f"log_ablation{EXP_SUFFIX}/{DATASET_DIR}"
+ABLATION_LOG_DIR = f"log_ablation/{DATASET_DIR}"
 
 
-ABLATION_LOG_DIR = f"log_ablation{EXP_SUFFIX}/{DATASET_DIR}"
+ABLATION_LOG_DIR = f"log_ablation/{DATASET_DIR}"
 
 # ✅ 新增：消融实验评估配置
 ABLATION_EVAL_CONFIGS = {
@@ -270,6 +266,11 @@ LONG_MEMORY_LOG_ROOT = "log_long_eval"
 # ============= 属性级别监督配置 =============创新点1
 ENABLE_ATTRIBUTE_GUIDANCE = True  # 是否启用属性级别引导
 ENABLE_SEPARATE_LTM = True
+# ATTRIBUTE_DIMENSIONS = [
+#     "style", "material", "price", "genre",
+#     "functionality", "brand", "color", "quality"
+# ]  # 属性维度，可根据数据集调整
+# ATTRIBUTE_POLARITY = ["positive", "negative"]  # 属性极性
 
 
 # ========== UAMG 门控配置（创新点2）==========
@@ -279,3 +280,24 @@ GATING_EARLY_THRESHOLD = 0.7  # 早期阈值（前20次交互）
 GATING_LATE_THRESHOLD = 0.3   # 后期阈值（50次交互后）
 GATING_TRANSITION_START = 20  # 开始收紧的交互次数
 GATING_TRANSITION_END = 50    # 完全收紧的交互次数
+GATING_START_ROUND = 4
+
+
+# ========== LLM Memory Evaluation ==========
+ENABLE_LLM_MEMORY_EVALUATION = False  # 是否启用LLM记忆评估（默认关闭，需要时手动开启）
+
+# 门控阈值
+LLM_GATE_THRESHOLD = 0.70  # 推荐范围: 0.65-0.75
+
+# 权重配置
+LLM_STM_WEIGHT = 0.6  # 短期记忆权重
+LLM_LTM_WEIGHT = 0.4  # 长期记忆权重
+
+# 历史上下文窗口
+LLM_STM_CONTEXT_WINDOW = 2  # 前2轮用于STM评估
+LLM_LTM_CONTEXT_WINDOW = None  # None表示所有历史轮
+
+# 日志配置
+LOG_LLM_MEMORY_DECISIONS = True
+LLM_MEMORY_LOG_FILE = f"{LOG_DIR}/llm_memory_decisions.jsonl"
+
