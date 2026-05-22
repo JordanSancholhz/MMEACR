@@ -5,12 +5,12 @@
 """
 
 # ============= 数据集选择（主要修改这里）=============
-CURRENT_DATASET = "CDs"
+CURRENT_DATASET = "Fashion"
 # 可选: "CDs" | "All_Beauty" | "Cell_Phones" | "Fashion"
 
 # ============= 模式选择 =============
 TRAIN_MODE = "description"   # 训练模式: "basic" | "description"
-EVAL_MODE = "rrf"          # 评估模式: "basic" | "description" | "embedding" | "rrf"
+EVAL_MODE = "description"          # 评估模式: "basic" | "description" | "embedding" | "rrf"
 
 # ============= 负样本配置 =============
 USE_FIXED_NEGATIVES = True   # 是否使用预生成的固定负样本
@@ -25,7 +25,8 @@ DATASETS_META = {
         "dataset_dir": "CDs",
         "user_init_template": "I enjoy listening to CDs and vinyl records very much.",
         "item_init_template": "This is a CD or vinyl record titled '{title}'.",
-        "image_dir": "/root/cds_images_CDs",
+        "image_dir": "dataset/CDs_images/",
+        # "image_dir": "/root/cds_images_CDs",
     },
     "All_Beauty": {
         "name": "All_Beauty",
@@ -43,7 +44,7 @@ DATASETS_META = {
         "dataset_dir": "Cell_Phones_and_Accessories",
         "user_init_template": "I am interested in cell phones and related accessories.",
         "item_init_template": "This is a cell phone or accessory titled '{title}'.",
-        "image_dir": "/root/cds_images_cell",
+        "image_dir": "dataset/Cell_Phones_and_Accessories_images",
     },
     # ✅ 新增 Fashion 数据集配置
     "Fashion": {
@@ -53,7 +54,7 @@ DATASETS_META = {
         "dataset_dir": "Fashion",
         "user_init_template": "I am interested in fashion and clothing products.",
         "item_init_template": "This is a fashion item titled '{title}'.",
-        "image_dir": "/root/cds_images_fashion",  # 如果有图片，请修改为实际路径
+        "image_dir": "dataset/Fashion_images",  # 如果有图片，请修改为实际路径
     }
 }
 
@@ -138,7 +139,7 @@ LOG_DIR = f"log/{DATASET_DIR}"
 
 # ============= 模型配置 =============
 candidate_num = 10
-model = "gpt-4o"
+model = "glm-4.5"
 evaluation_times = 1
 
 # ============= 训练配置 =============
@@ -265,7 +266,7 @@ LONG_MEMORY_LOG_ROOT = "log_long_eval"
 
 # ============= 属性级别监督配置 =============创新点1
 ENABLE_ATTRIBUTE_GUIDANCE = True  # 是否启用属性级别引导
-ENABLE_SEPARATE_LTM = True
+ENABLE_SEPARATE_LTM = False
 # ATTRIBUTE_DIMENSIONS = [
 #     "style", "material", "price", "genre",
 #     "functionality", "brand", "color", "quality"
@@ -274,30 +275,10 @@ ENABLE_SEPARATE_LTM = True
 
 
 # ========== UAMG 门控配置（创新点2）==========
-ENABLE_MEMORY_GATING = True  # 是否启用记忆门控
+ENABLE_MEMORY_GATING = False  # 是否启用记忆门控
 GATING_BASE_THRESHOLD = 0.5  # 基础阈值（会自适应调整）
 GATING_EARLY_THRESHOLD = 0.7  # 早期阈值（前20次交互）
 GATING_LATE_THRESHOLD = 0.3   # 后期阈值（50次交互后）
 GATING_TRANSITION_START = 20  # 开始收紧的交互次数
 GATING_TRANSITION_END = 50    # 完全收紧的交互次数
 GATING_START_ROUND = 4
-
-
-# ========== LLM Memory Evaluation ==========
-ENABLE_LLM_MEMORY_EVALUATION = False  # 是否启用LLM记忆评估（默认关闭，需要时手动开启）
-
-# 门控阈值
-LLM_GATE_THRESHOLD = 0.70  # 推荐范围: 0.65-0.75
-
-# 权重配置
-LLM_STM_WEIGHT = 0.6  # 短期记忆权重
-LLM_LTM_WEIGHT = 0.4  # 长期记忆权重
-
-# 历史上下文窗口
-LLM_STM_CONTEXT_WINDOW = 2  # 前2轮用于STM评估
-LLM_LTM_CONTEXT_WINDOW = None  # None表示所有历史轮
-
-# 日志配置
-LOG_LLM_MEMORY_DECISIONS = True
-LLM_MEMORY_LOG_FILE = f"{LOG_DIR}/llm_memory_decisions.jsonl"
-
