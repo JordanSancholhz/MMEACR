@@ -129,14 +129,15 @@ LONG_MEMORY_PROMPTS = {
 # ]
 ATTRIBUTE_DIMENSIONS = [
     "Functionality",  # 品质层次
-    "Protection",  # 设计哲学
-    "Aesthetics",  # 优先关注点
-    "Compatibility",  # 耐用性重视程度
-    "Durability",  # 品牌偏好
-    "Portability",  # 价格敏感度
-    "Innovation",  # 使用场景
-    "Premium Quality",  # 便携性需求
-    "Security",
+    "Elegance",  # 设计哲学
+    "Versatility",  # 优先关注点
+    "Comfort",  # 耐用性重视程度
+    "Color",  # 品牌偏好
+    "Uniqueness",  # 价格敏感度
+    "Detailing",  # 使用场景
+    "Pattern",  # 便携性需求
+    "Modernity",
+    "Simplicity",
 ]
 
 def attribute_analysis_prompt_correct(
