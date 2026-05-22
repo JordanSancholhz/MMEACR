@@ -13,21 +13,31 @@ os.makedirs(STM_DIR, exist_ok=True)
 def parse_attribute_rationale(response_text):
     """
     使用正则从 LLM 输出中提取属性字典
-    匹配格式: - [attribute]: [item_name] | [positive/negative] | [score]
+    兼容格式（方括号可有可无）：
+        - [attribute]: [item_name] | positive | 5
+        - attribute: item_name | positive | 5
+        - [attribute]: item_name with, commas | negative | 3
     返回: {dimension: {item_name, polarity, score}}
     """
     attributes = {}
-    # 匹配 - [genre]: Item Name | positive | 5 这种格式
-    pattern = r"-\s*\[(.*?)\]:\s*(.*?)\s*\|\s*(positive|negative)\s*\|\s*(\d+)"
-    matches = re.findall(pattern, response_text)
+    pattern = (
+        r"-\s*"
+        r"\[?\s*([^\[\]\:\n]+?)\s*\]?\s*:\s*"
+        r"\[?\s*(.+?)\s*\]?\s*"
+        r"\|\s*(positive|negative)\s*"
+        r"\|\s*(\d+)"
+    )
+    matches = re.findall(pattern, response_text, flags=re.IGNORECASE)
 
     for match in matches:
-        attr_dim = match[0].strip()
-        item_name = match[1].strip()
-        polarity = match[2].strip()
-        score = int(match[3].strip())
+        attr_dim = match[0].strip().lower().replace(" ", "_")
+        item_name = match[1].strip().strip("[]").strip()
+        polarity = match[2].strip().lower()
+        try:
+            score = int(match[3].strip())
+        except ValueError:
+            continue
 
-        # 使用 dimension 作为 key
         attributes[attr_dim] = {
             "item_name": item_name,
             "polarity": polarity,
@@ -307,7 +317,7 @@ def evaluate_memory_gate(userId, round_num, current_attrs, is_choice_right):
             "history_count": 0
         }
 
-    # 2. Round 2-3: 只使用STM分数（短期记忆）
+    # 2. Round 2-3: 只使用STM分数（当前轮 vs 前两轮加权，与 Round 4 同口径）
     elif round_num in [2, 3]:
         # 加载History
         history_file = f"{MEMORY_BASE_DIR}/stm_history/user_{userId}.json"
@@ -319,17 +329,28 @@ def evaluate_memory_gate(userId, round_num, current_attrs, is_choice_right):
         else:
             history = []
 
-        # 提取前一轮的属性（短期记忆）
-        previous_attrs = {}
+        # 提取前两轮的属性
+        # near_attrs  = 最近一轮 (round_num - 1)，权重 0.6
+        # far_attrs   = 次近一轮 (round_num - 2)，权重 0.4
+        near_attrs = {}
+        far_attrs = {}
         for entry in history:
             if entry["round"] == round_num - 1:
-                previous_attrs = entry.get("extracted_attrs", {})
-                break
+                near_attrs = entry.get("extracted_attrs", {}) or {}
+            elif entry["round"] == round_num - 2:
+                far_attrs = entry.get("extracted_attrs", {}) or {}
 
-        # 只计算STM分数（与前一轮比较）
-        stm_score = compute_stm_score(current_attrs, previous_attrs)
+        # 与前两轮加权比较：compute_stm_score_two_rounds 内部
+        # = 0.6 * compute_stm_score(current, round_3_attrs)
+        # + 0.4 * compute_stm_score(current, round_2_attrs)
+        # 所以把 near 传给 round_3_attrs、far 传给 round_2_attrs
+        stm_score = compute_stm_score_two_rounds(
+            current_attrs,
+            round_2_attrs=far_attrs,
+            round_3_attrs=near_attrs,
+        )
 
-        # gate_score直接等于stm_score（不加权LTM）
+        # gate_score 直接等于 stm_score（不加权 LTM）
         gate_score = stm_score
 
         # 阈值
@@ -341,9 +362,9 @@ def evaluate_memory_gate(userId, round_num, current_attrs, is_choice_right):
             "gate_score": gate_score,
             "should_update": should_update,
             "stm_score": stm_score,
-            "ltm_score": 0.0,  # Round 2-3不使用LTM
+            "ltm_score": 0.0,  # Round 2-3 不使用 LTM
             "threshold": threshold,
-            "weights": {"alpha": 0.0, "beta": 1.0},  # 只用STM
+            "weights": {"alpha": 0.0, "beta": 1.0},  # 只用 STM
             "round_num": round_num,
             "history_count": len(history)
         }
