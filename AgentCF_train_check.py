@@ -9,7 +9,7 @@ from fuzzywuzzy import fuzz
 import shutil
 import os
 from dataPrepare import createInterDF, createItemDF, createRandomDF
-from request import async_client
+from request1 import async_client
 import json
 import asyncio
 import threading
@@ -258,21 +258,29 @@ async def process_single_interaction_async(interaction, batch_idx, round_num, it
                 )
 
             # 这里直接调用 API，不再通过 get_attribute_analysis 封装以减少改动
-            attr_res = await async_client.call_api_async(attr_prompt, model)
+            attr_res = await async_client.call_api_async(attr_prompt, model,  temperature=0.1)
             attribute_analysis = attr_res
-            # if not attribute_analysis or not attribute_analysis.strip():
-            #     print("Warning: LLM returned empty attribute analysis.")
-            # print("Attribute analysis: True")
 
         # 原来的
-        # user_prompt, item_prompt = create_prompts(user_description, list_of_item_description,
-        #                                          pos_item_title, neg_item_title,
-        #                                          system_reason, is_choice_right, attribute_analysis)
+        if ENABLE_MEMORY_GATING:
+            user_prompt, item_prompt = create_prompts(
+                user_description, list_of_item_description,
+                pos_item_title, neg_item_title,
+                system_reason, is_choice_right,
+                attribute_analysis, userId=userId, round_num=round_num
+            )
+        else:
+            user_prompt, item_prompt = create_prompts1(
+                user_description, list_of_item_description,
+                pos_item_title, neg_item_title,
+                system_reason, is_choice_right,
+                attribute_analysis
+            )
         # 新增的
-        user_prompt, item_prompt = create_prompts(user_description, list_of_item_description,
-                                                  pos_item_title, neg_item_title,
-                                                  system_reason, is_choice_right,
-                                                  attribute_analysis, userId=userId, round_num=round_num)
+        # user_prompt, item_prompt = create_prompts(user_description, list_of_item_description,
+        #                                           pos_item_title, neg_item_title,
+        #                                           system_reason, is_choice_right,
+        #                                           attribute_analysis, userId=userId, round_num=round_num)
         # 新增------------------------------------------------------------------------------创新点1
 
         user_response = await async_client.call_api_async(user_prompt, model)
@@ -280,45 +288,39 @@ async def process_single_interaction_async(interaction, batch_idx, round_num, it
         # ========== 初始化门控标志 ==========
         should_update = True  # 默认更新（Round 0-1始终更新）
         gate_score = None  # 门控分数
-        threshold = None  # 门控阈值
+        extracted_attrs = {}
 
         if user_response:
             # ========== 新增：属性提取和STM保存 ==========
-            extracted_attrs = {}
+
             if ENABLE_ATTRIBUTE_GUIDANCE:
                 # 1. 解析属性
                 extracted_attrs = parse_attribute_rationale(user_response)
 
+
                 # 2. 保存STM和History（始终保存，用于历史记录）
                 save_stm_and_history(userId, extracted_attrs, round_num)
 
-            # ========== 新增：UAMG 门控（Round 2+启用）==========
-            if ENABLE_MEMORY_GATING and ENABLE_ATTRIBUTE_GUIDANCE and round_num >= 2:
-                # 调用门控评估
+            if ENABLE_ATTRIBUTE_GUIDANCE and ENABLE_MEMORY_GATING and round_num >= 2:
                 gate_result = evaluate_memory_gate(
                     userId, round_num, extracted_attrs, is_choice_right
                 )
-
                 gate_score = gate_result['gate_score']
                 threshold = gate_result['threshold']
                 stm_score = gate_result['stm_score']
                 ltm_score = gate_result['ltm_score']
+                should_update = gate_result['should_update']
 
                 print(f"[Gate] User {userId} Round {round_num}: "
                       f"Score={gate_score:.3f} "
-                      f"(LTM={gate_result['ltm_score']:.2f}, "
-                      f"STM={gate_result['stm_score']:.2f}), "
+                      f"(LTM={ltm_score:.2f}, STM={stm_score:.2f}), "
                       f"Threshold={threshold:.2f}")
 
-                should_update = gate_result['should_update']
-
-            # ========== 根据门控结果决定更新策略 ==========
+            # ========== 新增：UAMG 门控（Round 2+启用）==========
             if should_update:
-                # 高于门控：直接用user_response更新记忆
                 update_user_memory(userId, user_response)
                 print(f"✅ [Update] User {userId} memory updated (DIRECT)")
             else:
-                # 低于门控：生成调整后的版本再更新
                 print(f"⚠️ [Adjust] User {userId} gate score below threshold, generating adjusted update...")
                 adjusted_response = await generate_adjusted_memory_update(
                     user_response, gate_score, stm_score, ltm_score, round_num, async_client, model
@@ -328,7 +330,7 @@ async def process_single_interaction_async(interaction, batch_idx, round_num, it
                     print(f"✅ [Update] User {userId} memory updated (ADJUSTED)")
                 else:
                     print(f"⛔ [Error] User {userId} failed to generate adjusted update")
-            # ========== 门控结束 ==========
+
 
         item_response = await async_client.call_api_async(item_prompt, model)
         if item_response:
@@ -345,7 +347,9 @@ async def process_single_interaction_async(interaction, batch_idx, round_num, it
         print(f"✅ 用户 {userId} 第{round_num + 1}轮完成")
 
     except Exception as e:
+        import traceback
         print(f"❌ 处理交互时出错: {e}")
+        print(traceback.format_exc())
 
 
 async def process_batch_async(batch, batch_idx, round_num, itemDF, random_df, memory_lock, negative_samples_log,
@@ -510,43 +514,42 @@ def parse_response(responseText):
 
 
 # 新增------------------------------------------------------------------------------创新点1
-# def create_prompts(user_description, list_of_item_description, pos_item_title,
-#                    neg_item_title, system_reason, is_choice_right,
-#                    attribute_analysis=None):
-#     """
-#     创建更新提示
-#     attribute_analysis: 如果启用属性监督，传入属性分析结果
-#     """
-#     if ENABLE_ATTRIBUTE_GUIDANCE and attribute_analysis:
-#         # 使用属性增强版 prompt
-#         if not is_choice_right:
-#             user_prompt = user_prompt_system_role(user_description) + '\n' + \
-#                           user_prompt_template_with_attr(list_of_item_description, pos_item_title,
-#                                                    neg_item_title, system_reason, attribute_analysis)
-#             item_prompt = item_prompt_template_with_attr(user_description, list_of_item_description,
-#                                                    pos_item_title, neg_item_title,
-#                                                    system_reason, attribute_analysis)
-#         else:
-#             user_prompt = user_prompt_system_role(user_description) + '\n' + \
-#                           user_prompt_template_true_with_attr(list_of_item_description, pos_item_title,
-#                                                         neg_item_title, system_reason, attribute_analysis)
-#             item_prompt = item_prompt_template_true_with_attr(user_description, list_of_item_description,
-#                                                         pos_item_title, neg_item_title, attribute_analysis)
-#     else:
-#         # 使用原版 prompt
-#         if not is_choice_right:
-#             user_prompt = user_prompt_system_role(user_description) + '\n' + \
-#                           user_prompt_template(list_of_item_description, pos_item_title,
-#                                                neg_item_title, system_reason)
-#             item_prompt = item_prompt_template(user_description, list_of_item_description,
-#                                                pos_item_title, neg_item_title, system_reason)
-#         else:
-#             user_prompt = user_prompt_system_role(user_description) + '\n' + \
-#                           user_prompt_template_true(list_of_item_description, pos_item_title,
-#                                                     neg_item_title, system_reason)
-#             item_prompt = item_prompt_template_true(user_description, list_of_item_description,
-#                                                     pos_item_title, neg_item_title)
-#     return user_prompt, item_prompt
+def create_prompts1(user_description, list_of_item_description, pos_item_title,
+                   neg_item_title, system_reason, is_choice_right, attribute_dimensions):
+    """
+    创建更新提示
+    attribute_analysis: 如果启用属性监督，传入属性分析结果
+    """
+    if ENABLE_ATTRIBUTE_GUIDANCE:
+        # 使用属性增强版 prompt
+        if not is_choice_right:
+            user_prompt = user_prompt_system_role(user_description) + '\n' + \
+                          user_prompt_template_with_attr(list_of_item_description, pos_item_title,
+                                                   neg_item_title, system_reason, attribute_dimensions=attribute_dimensions)
+            item_prompt = item_prompt_template_with_attr(user_description, list_of_item_description,
+                                                   pos_item_title, neg_item_title,
+                                                   system_reason, attribute_dimensions=attribute_dimensions)
+        else:
+            user_prompt = user_prompt_system_role(user_description) + '\n' + \
+                          user_prompt_template_true_with_attr(list_of_item_description, pos_item_title,
+                                                        neg_item_title, system_reason, attribute_dimensions=attribute_dimensions)
+            item_prompt = item_prompt_template_true_with_attr(user_description, list_of_item_description,
+                                                        pos_item_title, neg_item_title, attribute_dimensions=attribute_dimensions)
+    else:
+        # 使用原版 prompt
+        if not is_choice_right:
+            user_prompt = user_prompt_system_role(user_description) + '\n' + \
+                          user_prompt_template(list_of_item_description, pos_item_title,
+                                               neg_item_title, system_reason)
+            item_prompt = item_prompt_template(user_description, list_of_item_description,
+                                               pos_item_title, neg_item_title, system_reason)
+        else:
+            user_prompt = user_prompt_system_role(user_description) + '\n' + \
+                          user_prompt_template_true(list_of_item_description, pos_item_title,
+                                                    neg_item_title, system_reason)
+            item_prompt = item_prompt_template_true(user_description, list_of_item_description,
+                                                    pos_item_title, neg_item_title)
+    return user_prompt, item_prompt
 # 新增------------------------------------------------------------------------------
 
 
@@ -705,8 +708,6 @@ def create_prompts(user_description, list_of_item_description, pos_item_title,
                                                         pos_item_title, neg_item_title)
 
     return user_prompt, item_prompt
-
-
 # 新增------------------------------------------------------------------------------
 
 
@@ -753,20 +754,54 @@ async def generate_adjusted_memory_update(user_response, gate_score, stm_score, 
     return response
 
 
+# def update_item_memory(pos_itemId, neg_itemId, responseText, update_neg=True):
+#     """更新物品记忆"""
+#     updated_pos_item_intro = responseText.split("The updated description of the second item is: ")[-1]
+#
+#     # ✅ 使用config中的路径
+#     with open(f"{MEMORY_BASE_DIR}/item/item.{pos_itemId}", "w", encoding="utf-8") as file:
+#         file.write(updated_pos_item_intro)
+#
+#     if update_neg:
+#         updated_neg_item_intro = \
+#         re.split(r"The updated description of the first item is: |The updated description of the second item is: ",
+#                  responseText)[1]
+#         with open(f"{MEMORY_BASE_DIR}/item/item.{neg_itemId}", "w", encoding="utf-8") as file:
+#             file.write(updated_neg_item_intro)
 def update_item_memory(pos_itemId, neg_itemId, responseText, update_neg=True):
-    """更新物品记忆"""
-    updated_pos_item_intro = responseText.split("The updated description of the second item is: ")[-1]
+      """更新物品记忆"""
+      if not responseText:
+          print(f"⛔ [Item] empty responseText, skip update for {pos_itemId}/{neg_itemId}")
+          return
 
-    # ✅ 使用config中的路径
-    with open(f"{MEMORY_BASE_DIR}/item/item.{pos_itemId}", "w", encoding="utf-8") as file:
-        file.write(updated_pos_item_intro)
+      # 临时排查：marker 缺失时打印前 300 字
+      if "The updated description of the second item is: " not in responseText:
+          print(f"🔍 [Item-Debug] {pos_itemId} response preview: {responseText[:300]!r}")
 
-    if update_neg:
-        updated_neg_item_intro = \
-        re.split(r"The updated description of the first item is: |The updated description of the second item is: ",
-                 responseText)[1]
-        with open(f"{MEMORY_BASE_DIR}/item/item.{neg_itemId}", "w", encoding="utf-8") as file:
-            file.write(updated_neg_item_intro)
+      # 正样本：取 "The updated description of the second item is:" 之后的内容
+      pos_marker = "The updated description of the second item is: "
+      if pos_marker in responseText:
+          updated_pos_item_intro = responseText.split(pos_marker)[-1].strip()
+      else:
+          print(f"⛔ [Item] missing pos marker, skip {pos_itemId}")
+          updated_pos_item_intro = None
+
+      if updated_pos_item_intro:
+          with open(f"{MEMORY_BASE_DIR}/item/item.{pos_itemId}", "w", encoding="utf-8") as f:
+              f.write(updated_pos_item_intro)
+
+      if update_neg:
+          # 负样本：取两个 marker 之间的内容
+          parts = re.split(
+              r"The updated description of the first item is: |The updated description of the second item is: ",
+              responseText
+          )
+          if len(parts) >= 2 and parts[1].strip():
+              updated_neg_item_intro = parts[1].strip()
+              with open(f"{MEMORY_BASE_DIR}/item/item.{neg_itemId}", "w", encoding="utf-8") as f:
+                  f.write(updated_neg_item_intro)
+          else:
+              print(f"⛔ [Item] missing neg marker or empty content, skip {neg_itemId}")
 
 
 if __name__ == "__main__":
