@@ -117,46 +117,133 @@ LONG_MEMORY_PROMPTS = {
 
 # 属性维度定义（建议放在 config 中）
 # 针对 CDs 推荐数据集优化的维度
+# ATTRIBUTE_DIMENSIONS = [
+#     "genre",           # 流派 (Rock, Jazz, Classical等)
+#     "artist_style",    # 艺术家风格 (Vocal, Instrumental, Experimental)
+#     "audio_quality",   # 音质 (Remastered, Live Recording, Studio)
+#     "release_era",     # 发行年代 (80s Nostalgia, Modern Release)
+#     "rarity",          # 稀缺性 (Limited Edition, Collector's Item, Second-hand)
+#     "price",           # 价格
+#     "label",           # 出版厂牌 (如 Sony, Blue Note - 某些用户有厂牌忠诚度)
+#     "mood"             # 情感/氛围 (Relaxing, Energetic, Melancholic)
+# ]
 ATTRIBUTE_DIMENSIONS = [
-    "genre",           # 流派 (Rock, Jazz, Classical等)
-    "artist_style",    # 艺术家风格 (Vocal, Instrumental, Experimental)
-    "audio_quality",   # 音质 (Remastered, Live Recording, Studio)
-    "release_era",     # 发行年代 (80s Nostalgia, Modern Release)
-    "rarity",          # 稀缺性 (Limited Edition, Collector's Item, Second-hand)
-    "price",           # 价格
-    "label",           # 出版厂牌 (如 Sony, Blue Note - 某些用户有厂牌忠诚度)
-    "mood"             # 情感/氛围 (Relaxing, Energetic, Melancholic)
+    "Functionality",  # 品质层次
+    "Protection",  # 设计哲学
+    "Aesthetics",  # 优先关注点
+    "Compatibility",  # 耐用性重视程度
+    "Durability",  # 品牌偏好
+    "Portability",  # 价格敏感度
+    "Innovation",  # 使用场景
+    "Premium Quality",  # 便携性需求
+    "Security",
 ]
 
-def attribute_analysis_prompt_correct(user_description, pos_item_title, neg_item_title,
-                                     pos_item_desc, neg_item_desc, system_reason):
-    """当模型选对时：分析为什么选对了，强化这些属性"""
+def attribute_analysis_prompt_correct(
+        user_description,
+        pos_item_title,
+        neg_item_title,
+        pos_item_desc,
+        neg_item_desc,
+        system_reason):
+
     attr_list = ", ".join(ATTRIBUTE_DIMENSIONS)
-    return f"""User preferences: '{user_description}'.
-The model CORRECTLY chose '{pos_item_title}' over '{neg_item_title}'.
-Reasoning provided: '{system_reason}'.
 
-Analyze which attributes confirmed this correct choice. For each relevant dimension ({attr_list}):
-1. Identify the advantage of '{pos_item_title}'
-2. Polarity: positive (aligns with user)
-3. Importance: 1-5
+    return f"""
+You are an attribute extraction system.
 
-Output format: [attribute]: {pos_item_title} | positive | [score]"""
+Your ONLY task is to extract attributes that explain WHY the correct item matches the user preference.
 
-def attribute_analysis_prompt_incorrect(user_description, pos_item_title, neg_item_title,
-                                       pos_item_desc, neg_item_desc, system_reason):
-    """当模型选错时：分析为什么被 neg 误导了，哪些属性是负面的"""
+Allowed attributes ONLY:
+{attr_list}
+
+STRICT RULES:
+- Output ONLY attribute lines
+- Do NOT output explanations
+- Do NOT output reasoning
+- Do NOT output self introduction
+- Do NOT output summaries
+- Do NOT output markdown
+- Do NOT output extra text
+- Do NOT invent attributes
+- Attribute names MUST exactly match the allowed list
+- Output at least 2 attributes
+- If no valid attribute exists, output ONLY:
+NONE
+
+Required format:
+Attribute: item_name | positive | score
+
+Example:
+Functionality: iPhone 15 | positive | 5
+Protection: iPhone 15 | positive | 4
+
+User preferences:
+{user_description}
+
+Correct item:
+{pos_item_title}
+
+Rejected item:
+{neg_item_title}
+
+Previous reasoning:
+{system_reason}
+"""
+
+def attribute_analysis_prompt_incorrect(
+        user_description,
+        pos_item_title,
+        neg_item_title,
+        pos_item_desc,
+        neg_item_desc,
+        system_reason):
+
     attr_list = ", ".join(ATTRIBUTE_DIMENSIONS)
-    return f"""User preferences: '{user_description}'.
-The model INCORRECTLY chose '{neg_item_title}' instead of '{pos_item_title}'.
-Flawed reasoning: '{system_reason}'.
 
-Identify the attributes that led to this error. For relevant dimensions ({attr_list}):
-1. Identify the misleading trait in '{neg_item_title}' or the missed trait in '{pos_item_title}'
-2. Polarity: negative (conflicts with true user preference) or positive (what we should have liked)
-3. Importance: 1-5
+    return f"""
+You are an attribute extraction system.
 
-Output format: [attribute]: [item_name] | [positive/negative] | [score]"""
+Your ONLY task is to extract:
+1. positive attributes from the correct item
+2. misleading negative attributes from the wrongly selected item
+
+Allowed attributes ONLY:
+{attr_list}
+
+STRICT RULES:
+- Output ONLY attribute lines
+- Do NOT output explanations
+- Do NOT output reasoning
+- Do NOT output self introduction
+- Do NOT output summaries
+- Do NOT output markdown
+- Do NOT output extra text
+- Do NOT invent attributes
+- Attribute names MUST exactly match the allowed list
+- Output at least 2 attributes
+- If no valid attribute exists, output ONLY:
+NONE
+
+Required format:
+Attribute: item_name | positive/negative | score
+
+Example:
+Functionality: iPhone 15 | positive | 5
+Aesthetics: Cheap Phone | negative | 4
+
+User preferences:
+{user_description}
+
+Correct item:
+{pos_item_title}
+
+Wrongly selected item:
+{neg_item_title}
+
+Previous reasoning:
+{system_reason}
+"""
 
 
 def user_prompt_template_with_attr(list_of_item_description, pos_item_title, neg_item_title, system_reason, attribute_dimensions):
@@ -185,7 +272,8 @@ def user_prompt_template_with_attr(list_of_item_description, pos_item_title, neg
  2. Keep the self-introduction under 150 words.  
  3. Be concise and clear. 
  4. Describe only the features of items you prefer or dislike, without mentioning your thought process in the self-introduction. 
- 5. Your self-introduction should be specific and personalized; avoid generic preferences."""
+ 5. Your self-introduction should be specific and personalized; avoid generic preferences.
+ 6. In your self-introduction, use natural product language that a real shopper would use (e.g., "soft breathable fabrics", "relaxed everyday fit", "clean minimalist look"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). The Attribute Rationale section may reference these dimensions, but the self-introduction must sound like a shopper describing their taste, not an analyst labeling categories."""
 
 
 def user_prompt_template_true_with_attr(list_of_item_description, pos_item_title, neg_item_title, system_reason, attribute_dimensions):
@@ -215,7 +303,8 @@ def user_prompt_template_true_with_attr(list_of_item_description, pos_item_title
  2. Keep the self-introduction under 150 words. 
  3. Be concise and clear. 
  4. Describe only the features of items you prefer or dislike, without mentioning your thought process in the self-introduction. 
- 5. Your self-introduction should be specific and personalized."""
+ 5. Your self-introduction should be specific and personalized.
+ 6. In your self-introduction, use natural product language that a real shopper would use (e.g., "soft breathable fabrics", "relaxed everyday fit", "clean minimalist look"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). The Attribute Rationale section may reference these dimensions, but the self-introduction must sound like a shopper describing their taste, not an analyst labeling categories."""
 
 
 def item_prompt_template_with_attr(user_description, list_of_item_description, pos_item_title, neg_item_title, system_reason, attribute_dimensions):
@@ -243,7 +332,9 @@ def item_prompt_template_with_attr(user_description, list_of_item_description, p
  2. Each updated description cannot exceed 50 words; be concise and clear. 
  3. In your descriptions, refer to user preferences collectively, avoiding specific individual references, e.g., 'the user with ... preferences/dislikes'.
  4. The updated description should not contradict the item's inherent characteristics. 
- 5. The updated description should highlight distinguishing features that differentiate this item from others."""
+ 5. The updated description should highlight distinguishing features that differentiate this item from others.
+ 6. In your updated item descriptions, use natural product language (e.g., "soft breathable cotton", "slim tailored silhouette", "versatile everyday piece"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). Descriptions should read like a product listing, not a labeled feature sheet.
+ Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
 def item_prompt_template_true_with_attr(user_description, list_of_item_description, pos_item_title, neg_item_title, attribute_dimensions):
@@ -268,9 +359,9 @@ def item_prompt_template_true_with_attr(user_description, list_of_item_descripti
  The updated description of the second item is: [updated description].
  2. Each updated description cannot exceed 50 words; be concise and clear! 
  3. In your updated descriptions, refer to preferences collectively.
- 4. New features should reflect user preferences, and the updated descriptions must not contradict the inherent characteristics of the items."""
-
-
+ 4. New features should reflect user preferences, and the updated descriptions must not contradict the inherent characteristics of the items.
+ 5. In your updated item descriptions, use natural product language (e.g., "soft breathable cotton", "slim tailored silhouette", "versatile everyday piece"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). Descriptions should read like a product listing, not a labeled feature sheet.
+ Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
 
@@ -526,7 +617,8 @@ Attribute Rationale:
 - [attribute_1]: [item_name] | [positive/negative] | [score 1-5]
 - [attribute_2]: [item_name] | [positive/negative] | [score 1-5]
 The updated description of the first item is: [Updated description for '{neg_item_title}']
-The updated description of the second item is: [Updated description for '{pos_item_title}']"""
+The updated description of the second item is: [Updated description for '{pos_item_title}']
+Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
 def item_prompt_template_true_with_attr_ltm(user_description, list_of_item_description,
@@ -604,7 +696,8 @@ Attribute Rationale:
 - [attribute_1]: [item_name] | [positive/negative] | [score 1-5]
 - [attribute_2]: [item_name] | [positive/negative] | [score 1-5]
 The updated description of the first item is: [Updated description for '{neg_item_title}']
-The updated description of the second item is: [Updated description for '{pos_item_title}']"""
+The updated description of the second item is: [Updated description for '{pos_item_title}']
+Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
 
@@ -803,7 +896,8 @@ Attribute Rationale:
 - [attribute_1]: [item_name] | [positive/negative] | [score 1-5]
 - [attribute_2]: [item_name] | [positive/negative] | [score 1-5]
 The updated description of the first item is: [Updated description for '{neg_item_title}']
-The updated description of the second item is: [Updated description for '{pos_item_title}']"""
+The updated description of the second item is: [Updated description for '{pos_item_title}']
+Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
 def item_prompt_template_true_with_attr_stm(user_description, list_of_item_description,
@@ -864,8 +958,8 @@ Attribute Rationale:
 - [attribute_1]: [item_name] | [positive/negative] | [score 1-5]
 - [attribute_2]: [item_name] | [positive/negative] | [score 1-5]
 The updated description of the first item is: [Updated description for '{neg_item_title}']
-The updated description of the second item is: [Updated description for '{pos_item_title}']"""
-
+The updated description of the second item is: [Updated description for '{pos_item_title}']
+Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
 
@@ -954,45 +1048,142 @@ The updated description of the second item is: [Updated description for '{pos_it
 # (Provide a concise analysis focusing on attribute overlap and sentiment polarity changes compared to short-term and long-term history)
 # """
 
+
+# def adjusted_memory_prompt(extracted_response, gate_score, stm_score, ltm_score, round_num):
+#     """
+#     生成带有属性重叠与极性分析思考的 Prompt，并严格限制反思长度。
+#     """
+#
+#     # 动态生成思考逻辑引导
+#     if round_num < 4:
+#         thought_guidance = (
+#             f"1. **Short-term Pattern**: STM Score = {stm_score:.2f} "
+#             f"(Higher = more similar to last 3 rounds; Lower = shifting focus). "
+#             f"Briefly explain what this similarity/difference reveals."
+#         )
+#     else:
+#         thought_guidance = (
+#             f"1. **Consistency Analysis**: \n"
+#             f"   - STM Score = {stm_score:.2f} (similarity to last 3 rounds)\n"
+#             f"   - LTM Score = {ltm_score:.2f} (similarity to overall history)\n"
+#             f"   Compare: Is current focus aligned with recent trends (STM) or historical baseline (LTM)? "
+#             f"Identify if this is a temporary fluctuation or genuine preference shift."
+#         )
+#
+#     # Gate Score 的清晰描述
+#     if gate_score == 0:
+#         gate_explanation = "**Gate Score = 0**: Current focus matches NEITHER recent rounds NOR historical pattern (significant drift detected)."
+#     else:
+#         gate_explanation = f"**Gate Score = {gate_score:.2f}**: Indicates alignment with at least one memory layer (STM or LTM)."
+#
+#     return f"""You are a specialized agent for maintaining user preference profiles.
+#
+#   **Context Metrics**:
+#   - **Current Round**: {round_num}
+#   - {gate_explanation}
+#   - **Similarity Scores**:
+#     - **STM (Short-term)**: {stm_score:.2f} — How similar current focus is to the last 3 rounds
+#     - **LTM (Long-term)**: {ltm_score:.2f} — How similar current focus is to overall historical pattern
+#
+#   **User's Original Update**:
+#   {extracted_response}
+#
+#   **Task**:
+#   Analyze the preference consistency/drift indicated by the similarity scores. Output the original update followed by a **highly concise** reflection.
+#
+#   **Reflection Constraints**:
+#   {thought_guidance}
+#   2. Distinguish "genuine preference shift" vs. "temporary exploration/noise".
+#   3. **LENGTH LIMIT**: Your reflection MUST be shorter than the user's original update. Keep it under 2-3 sentences max.
+#
+#   **Output Format**:
+#   My updated self-introduction:
+#   {extracted_response}
+#
+#   [Reflective Thoughts]:
+#   (Concise analysis based on STM/LTM similarity scores. Must be shorter than the introduction above.)
+#   - **Similarity Scores**:
+#     - **STM (Short-term)**: {stm_score:.2f} — How similar current focus is to the last 3 rounds
+#     - **LTM (Long-term)**: {ltm_score:.2f} — How similar current focus is to overall historical pattern
+#
+#   **User's Original Update**:
+#   {extracted_response}
+#
+#   **Task**:
+#   Analyze the preference consistency/drift indicated by the similarity scores. Output the original update followed by a **highly concise** reflection.
+#
+#   **Reflection Constraints**:
+#   {thought_guidance}
+#   2. Distinguish "genuine preference shift" vs. "temporary exploration/noise".
+#   3. **LENGTH LIMIT**: Your reflection MUST be shorter than the user's original update. Keep it under 2-3 sentences max.
+#
+#   **Output Format**:
+#   My updated self-introduction:
+#   {extracted_response}
+#
+#   [Reflective Thoughts]:
+#   (Concise analysis based on STM/LTM similarity scores. Must be shorter than the introduction above.)
+#   """
+
+
 def adjusted_memory_prompt(extracted_response, gate_score, stm_score, ltm_score, round_num):
     """
     生成带有属性重叠与极性分析思考的 Prompt，并严格限制反思长度。
     """
 
     # 动态生成思考逻辑引导
-    if ltm_score == 0:
+    if round_num < 4 :
         thought_guidance = (
-            f"1. **Short-term Fluctuation**: Briefly explain the shift in attribute overlap/polarity "
-            f"across the last 3 rounds (STM Score: {stm_score:.2f})."
+            f"1. **Short-term Pattern**: STM Score = {stm_score:.2f} "
+            f"(Higher = more similar to last 3 rounds; Lower = shifting focus). "
+            f"Briefly explain what this similarity/difference reveals."
         )
     else:
         thought_guidance = (
-            f"1. **Consistency vs. Deviation**: Compare the 3-round window stability (STM: {stm_score:.2f}) "
-            f"against the historical baseline (LTM: {ltm_score:.2f})."
+            f"1. **Consistency Analysis**: \n"
+            f"   - STM Score = {stm_score:.2f} (similarity to last 3 rounds)\n"
+            f"   - LTM Score = {ltm_score:.2f} (similarity to overall history)\n"
+            f"   Compare: Is current focus aligned with recent trends (STM) or historical baseline (LTM)? "
+            f"Identify if this is a temporary fluctuation or genuine preference shift."
         )
+
+    # Gate Score 的清晰描述
+    if gate_score == 0:
+        gate_explanation = "**Gate Score = 0**: Current focus matches NEITHER recent rounds NOR historical pattern (significant drift detected)."
+    else:
+        gate_explanation = f"**Gate Score = {gate_score:.2f}**: Indicates alignment with at least one memory layer (STM or LTM)."
+
+    # 根据 round_num 决定是否分析 LTM
+    if round_num < 4:
+        ltm_analysis_note = "Note: Only analyze short-term memory (STM) since round_num < 4. Do NOT analyze long-term memory (LTM) at this stage."
+    else:
+        ltm_analysis_note = "Note: Analyze both short-term memory (STM) and long-term memory (LTM) since round_num >= 4."
 
     return f"""You are a specialized agent for maintaining user preference profiles.
 
-**Context Metrics**:
-- **Current Round**: {round_num}
-- **Gate Score**: {gate_score:.2f} (Stability indicator)
-- **Short-term (STM)**: {stm_score:.2f} | **Long-term (LTM)**: {ltm_score:.2f}
+  **Context Metrics**:
+  - **Current Round**: {round_num}
+  - {gate_explanation}
+  - **Similarity Scores**:
+    - **STM (Short-term)**: {stm_score:.2f} — How similar current focus is to the last 3 rounds
+    - **LTM (Long-term)**: {ltm_score:.2f} — How similar current focus is to overall historical pattern
 
-**User's Original Update**:
-{extracted_response}
+  **User's Original Update**:
+  {extracted_response}
 
-**Task**:
-Analyze the "preference drift" indicated by the scores. Output the original update followed by a **highly concise** reflection.
+  **Task**:
+  Analyze the preference consistency/drift indicated by the similarity scores. Output the original update followed by a **highly concise** reflection.
 
-**Reflection Constraints**:
-{thought_guidance}
-2. Distinguish "genuine shift" vs. "noise".
-3. **LENGTH LIMIT**: Your reflection MUST be shorter than the user's original update provided above. Keep it under 2-3 sentences max.
+  **Reflection Constraints**:
+  {thought_guidance}
+  2. Distinguish "genuine preference shift" vs. "temporary exploration/noise".
+  3. **LENGTH LIMIT**: Your reflection MUST be shorter than the user's original update. Keep it under 2-3 sentences max.
 
-**Output Format**:
-My updated self-introduction: 
-{extracted_response}
+  **Output Format**:
+  My updated self-introduction:
+  {extracted_response}
 
-[Reflective Thoughts]:
-(Concise analysis of attribute/polarity overlap. Must be shorter than the introduction above.)
-"""
+  [Reflective Thoughts]:
+  {ltm_analysis_note}
+  (Concise analysis based on STM/LTM similarity scores. Must be shorter than the introduction above.)
+  """
