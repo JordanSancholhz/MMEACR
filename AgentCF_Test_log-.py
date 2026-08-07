@@ -39,7 +39,6 @@ os.makedirs(LLM_LOG_DIR, exist_ok=True)
 SUCCESS_LOG_FILE = None
 FAILURE_LOG_FILE = None
 
-
 # ============= 通用工具函数 =============
 
 def calculate_dcg(relevance_scores, k):
@@ -49,14 +48,12 @@ def calculate_dcg(relevance_scores, k):
         dcg += relevance_scores[i] / math.log2(i + 2)
     return dcg
 
-
 def calculate_ndcg(relevance_scores, k):
     """计算NDCG@k"""
     dcg_k = calculate_dcg(relevance_scores, k)
     sorted_scores = sorted(relevance_scores, reverse=True)
     idcg_k = calculate_dcg(sorted_scores[:k], k)
     return dcg_k / idcg_k if idcg_k != 0 else 0.0
-
 
 def load_fixed_eval_candidates():
     """加载预生成的固定评估候选集"""
@@ -76,7 +73,6 @@ def load_fixed_eval_candidates():
 
     return data['candidates']
 
-
 # ============= Embedding相关函数 =============
 
 def cosine_similarity(vec1, vec2):
@@ -84,7 +80,6 @@ def cosine_similarity(vec1, vec2):
     vec1_norm = vec1 / (np.linalg.norm(vec1) + 1e-8)
     vec2_norm = vec2 / (np.linalg.norm(vec2) + 1e-8)
     return np.dot(vec1_norm, vec2_norm)
-
 
 def load_embeddings():
     """加载用户和物品embedding"""
@@ -107,7 +102,6 @@ def load_embeddings():
         print(f"[ERROR] Embedding加载失败: {e}")
         return None, None
 
-
 def compute_embedding_ranking(user_id, candidate_list, user_embeddings, item_embeddings):
     """计算基于embedding的排名"""
     if user_id not in user_embeddings:
@@ -128,11 +122,9 @@ def compute_embedding_ranking(user_id, candidate_list, user_embeddings, item_emb
     similarities.sort(key=lambda x: x[1], reverse=True)
     return similarities
 
-
 # ============= 实时日志 =============
 
-def log_llm_interaction(user_id, llm_input, llm_output, success, failure_reason=None, matched_items=None,
-                        unmatched_lines=None):
+def log_llm_interaction(user_id, llm_input, llm_output, success, failure_reason=None, matched_items=None, unmatched_lines=None):
     """记录LLM交互（实时写入）"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
@@ -158,7 +150,6 @@ def log_llm_interaction(user_id, llm_input, llm_output, success, failure_reason=
 
     if not success:
         print(f"[FAILURE] 用户{user_id} | {failure_reason}")
-
 
 # ============= LLM相关函数（优化后的模糊匹配）=============
 
@@ -195,15 +186,15 @@ async def get_llm_ranking_async(user_id, candidate_list, cdt_item_title_list, it
         system_prompt = system_prompt_template_evaluation_basic(user_memory, candidate_num, example_list)
         llm_input = system_prompt
 
-        # ✅ 简化重试：2次，宽松阈值20
+        # ✅ 重试最多8次，必须匹配到全部10个候选人
         best_ranked_items = []
         last_matched_titles = []
         last_unmatched_lines = []
 
-        for retry_idx in range(8):  # 只重试2次
+        for retry_idx in range(8):
             llm_output = await async_client.call_api_async(system_prompt, model)
             if llm_output is None:
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.5)
                 continue
 
             # 清理输出
@@ -256,12 +247,11 @@ async def get_llm_ranking_async(user_id, candidate_list, cdt_item_title_list, it
                         best_idx = i
 
                 # ✅ 阈值20，非常宽松
-                if best_score > 20 and best_idx >= 0:  # 原本是20
+                if best_score > 20 and best_idx >= 0: # 原本是20
                     item_id = candidate_list[best_idx]
                     ranked_items.append(item_id)
                     used_indices.add(best_idx)  # ✅ 标记为已使用
-                    matched_titles.append(
-                        f"{temp_title[:40]} → {cdt_item_title_list[best_idx][:40]} (sim={best_score})")
+                    matched_titles.append(f"{temp_title[:40]} → {cdt_item_title_list[best_idx][:40]} (sim={best_score})")
                 else:
                     unmatched_lines.append(f"{temp_title[:40]} (best_sim={best_score})")
 
@@ -283,26 +273,21 @@ async def get_llm_ranking_async(user_id, candidate_list, cdt_item_title_list, it
 
             await asyncio.sleep(0.1)
 
-        # ✅ 接受部分结果：>=50% 或 >=5个
-        min_acceptable = max(5, candidate_num // 2)
+            # ✅ 必须全部匹配，不接受部分结果
+            if len(best_ranked_items) >= candidate_num:
+                reason = f"完整匹配：{len(best_ranked_items)}/{candidate_num}"
+                log_llm_interaction(user_id, llm_input, llm_output, True, reason, last_matched_titles, last_unmatched_lines)
+                return best_ranked_items
 
-        if len(best_ranked_items) >= min_acceptable:
-            reason = f"部分匹配（接受）：{len(best_ranked_items)}/{candidate_num}"
-            # ✅ 记录到成功日志（因为可以计算NDCG）
-            log_llm_interaction(user_id, llm_input, llm_output, True, reason, last_matched_titles, last_unmatched_lines)
-            return best_ranked_items  # ✅ 返回部分结果用于计算NDCG
-        else:
-            reason = f"匹配不足：{len(best_ranked_items)}/{candidate_num}（低于{min_acceptable}）"
-            # ✅ 记录到失败日志
-            log_llm_interaction(user_id, llm_input, llm_output, False, reason, last_matched_titles,
-                                last_unmatched_lines)
-            return None
+        # 8次重试后仍不足 → 失败
+        reason = f"匹配不足：{len(best_ranked_items)}/{candidate_num}（要求{candidate_num}）"
+        log_llm_interaction(user_id, llm_input, llm_output, False, reason, last_matched_titles, last_unmatched_lines)
+        return None
 
     except Exception as e:
         # ✅ 异常也记录到失败日志
         log_llm_interaction(user_id, llm_input, llm_output, False, f"异常: {type(e).__name__}", None, None)
         return None
-
 
 # ============= 融合函数（仅RRF）=============
 
@@ -325,7 +310,6 @@ def rrf_fusion(embedding_ranking, llm_ranking, candidate_list, rrf_k=60):
 
     rrf_scores.sort(key=lambda x: x[1], reverse=True)
     return rrf_scores
-
 
 # ============= 评估函数 =============
 
@@ -396,6 +380,9 @@ async def evaluate_single_user(record, itemDF, random_df, fixed_candidates, user
 
     # 4️⃣ 计算指标
     ranked_items = [item[0] for item in final_ranking]
+    if target_item_id not in ranked_items:
+        print(f"[WARN] target_item_id {target_item_id} 不在排名结果中，追加到末尾")
+        ranked_items.append(target_item_id)
     target_rank = ranked_items.index(target_item_id) + 1
 
     relevance_scores = [1 if item == target_item_id else 0 for item in ranked_items]
@@ -417,7 +404,6 @@ async def evaluate_single_user(record, itemDF, random_df, fixed_candidates, user
         "final_ranking": ranked_items
     }
 
-
 async def process_batch(batch, itemDF, random_df, fixed_candidates, user_embeddings, item_embeddings):
     """批次处理（异步并发）"""
     tasks = [
@@ -425,7 +411,6 @@ async def process_batch(batch, itemDF, random_df, fixed_candidates, user_embeddi
         for _, record in batch.iterrows()
     ]
     return await asyncio.gather(*tasks, return_exceptions=True)
-
 
 # ============= 主函数 =============
 
@@ -500,8 +485,7 @@ async def main_async():
         end_idx = min((batch_idx + 1) * async_evaluation_batch_size, len(interDF))
         batch = interDF.iloc[start_idx:end_idx]
 
-        batch_results = await process_batch(batch, itemDF, random_df, fixed_candidates, user_embeddings,
-                                            item_embeddings)
+        batch_results = await process_batch(batch, itemDF, random_df, fixed_candidates, user_embeddings, item_embeddings)
 
         failed_records = []
         for idx, result in enumerate(batch_results):
@@ -522,15 +506,14 @@ async def main_async():
         retry_count = 0
         while failed_records and retry_count < 20:
             retry_count += 1
-            print(f"\n[WARN] 批次{batch_idx + 1}有{len(failed_records)}个失败，第{retry_count}次重试...")
+            print(f"\n[WARN] 批次{batch_idx+1}有{len(failed_records)}个失败，第{retry_count}次重试...")
             await asyncio.sleep(0.5)
 
             retry_batch = failed_records
             failed_records = []
 
             for record in retry_batch:
-                result = await evaluate_single_user(record, itemDF, random_df, fixed_candidates, user_embeddings,
-                                                    item_embeddings)
+                result = await evaluate_single_user(record, itemDF, random_df, fixed_candidates, user_embeddings, item_embeddings)
 
                 if isinstance(result, Exception) or result is None:
                     failed_records.append(record)
@@ -547,7 +530,7 @@ async def main_async():
 
         if failed_records:
             skipped_count += len(failed_records)
-            print(f"[WARN] 批次{batch_idx + 1}最终有{len(failed_records)}个用户失败")
+            print(f"[WARN] 批次{batch_idx+1}最终有{len(failed_records)}个用户失败")
 
     # 写入结束元数据
     for log_file in [SUCCESS_LOG_FILE, FAILURE_LOG_FILE]:
@@ -592,13 +575,12 @@ async def main_async():
         print(f"成功: {processed_count}, 跳过: {skipped_count}")
 
         if EVAL_MODE in ["basic", "description", "rrf"]:
-            print(
-                f"LLM成功率: {llm_success_count}/{processed_count} ({llm_success_count / processed_count * 100:.1f}%)")
+            print(f"LLM成功率: {llm_success_count}/{processed_count} ({llm_success_count/processed_count*100:.1f}%)")
             # ✅ 新增：匹配类型统计
             if full_match_count > 0 or partial_match_count > 0:
                 print(f"\n匹配类型分布:")
-                print(f"  完整匹配: {full_match_count} ({full_match_count / llm_success_count * 100:.1f}%)")
-                print(f"  部分匹配: {partial_match_count} ({partial_match_count / llm_success_count * 100:.1f}%)")
+                print(f"  完整匹配: {full_match_count} ({full_match_count/llm_success_count*100:.1f}%)")
+                print(f"  部分匹配: {partial_match_count} ({partial_match_count/llm_success_count*100:.1f}%)")
 
         print()
         print(f"NDCG@1:  {np.mean(results['ndcg_1']):.4f}")
@@ -641,7 +623,6 @@ async def main_async():
         print("[ERROR] 无有效结果")
 
     print("=" * 60)
-
 
 if __name__ == "__main__":
     asyncio.run(main_async())
