@@ -1,4 +1,4 @@
-# AgentCF: Multimodal and Multi-agent for Recommendation
+# Seeing and Reflecting: Multimodal Memory-Enhanced Agent Collaboration for Recommendation
 
 ## Data process
 
