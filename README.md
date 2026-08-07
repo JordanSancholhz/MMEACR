@@ -1,5 +1,6 @@
 # Seeing and Reflecting: Multimodal Memory-Enhanced Agent Collaboration for Recommendation
 
+## Paper URL: https://arxiv.org/abs/2607.07108
 ## Data process
 
 You can download dataset from .......
