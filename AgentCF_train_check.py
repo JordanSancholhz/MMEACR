@@ -1,7 +1,5 @@
 import math
 
-from memory_manager import parse_attribute_rationale, evaluate_memory_gate, save_stm_and_history, \
-    generate_ltm_from_history, load_stm_attributes
 from prompt import *
 import random
 import re
@@ -9,7 +7,7 @@ from fuzzywuzzy import fuzz
 import shutil
 import os
 from dataPrepare import createInterDF, createItemDF, createRandomDF
-from request1 import async_client
+from request import async_client
 import json
 import asyncio
 import threading
@@ -25,7 +23,23 @@ from config import (
     async_training_batch_size, async_training_max_concurrent,
     USE_FIXED_NEGATIVES, TRAIN_NEGATIVES_FILE,
     MEMORY_BASE_DIR, LOG_DIR,
-    ENABLE_ATTRIBUTE_GUIDANCE, ENABLE_MEMORY_GATING, ENABLE_SEPARATE_LTM  # 新增
+    ENABLE_ATTRIBUTE_GUIDANCE, ENABLE_MEMORY_GATING, ENABLE_SEPARATE_LTM,
+    ENABLE_CONFIDENCE_GATE,  # P0
+    ENABLE_ASYMMETRIC_GATE,  # P1
+    ENABLE_SOFT_FUSION,      # P3
+    GATING_START_ROUND,
+)
+
+from memory_manager import (
+    parse_attribute_rationale,
+    evaluate_memory_gate,
+    save_stm_and_history,
+    generate_ltm_from_history,
+    load_stm_attributes,
+    parse_confidence, strip_confidence_section,  # P0
+    evaluate_asymmetric_gate,  # P1
+    soft_fusion_memory,        # P3
+    save_gate_history,         # gate audit trail
 )
 
 mode = "train"
@@ -285,64 +299,114 @@ async def process_single_interaction_async(interaction, batch_idx, round_num, it
 
         user_response = await async_client.call_api_async(user_prompt, model)
 
-        # ========== 初始化门控标志 ==========
-        should_update = True  # 默认更新（Round 0-1始终更新）
-        gate_score = None  # 门控分数
-        extracted_attrs = {}
+        # ========== P1+P3 门控流程 ==========
+        gate_score = None
 
         if user_response:
-            # ========== 新增：属性提取和STM保存 ==========
-
+            # 属性解析 + STM/History 保存
+            extracted_attrs = {}
+            confidence_result = None
             if ENABLE_ATTRIBUTE_GUIDANCE:
-                # 1. 解析属性
                 extracted_attrs = parse_attribute_rationale(user_response)
-
-
-                # 2. 保存STM和History（始终保存，用于历史记录）
-                save_stm_and_history(userId, extracted_attrs, round_num)
-
-            if ENABLE_ATTRIBUTE_GUIDANCE and ENABLE_MEMORY_GATING and round_num >= 2:
-                gate_result = evaluate_memory_gate(
-                    userId, round_num, extracted_attrs, is_choice_right
-                )
-                gate_score = gate_result['gate_score']
-                threshold = gate_result['threshold']
-                stm_score = gate_result['stm_score']
-                ltm_score = gate_result['ltm_score']
-                should_update = gate_result['should_update']
-
-                print(f"[Gate] User {userId} Round {round_num}: "
-                      f"Score={gate_score:.3f} "
-                      f"(LTM={ltm_score:.2f}, STM={stm_score:.2f}), "
-                      f"Threshold={threshold:.2f}")
-
-            # ========== 新增：UAMG 门控（Round 2+启用）==========
-            if should_update:
-                update_user_memory(userId, user_response)
-                print(f"✅ [Update] User {userId} memory updated (DIRECT)")
-            else:
-                print(f"⚠️ [Adjust] User {userId} gate score below threshold, generating adjusted update...")
-                adjusted_response = await generate_adjusted_memory_update(
-                    user_response, gate_score, stm_score, ltm_score, round_num, async_client, model
-                )
-                if adjusted_response:
-                    update_user_memory(userId, adjusted_response)
-                    print(f"✅ [Update] User {userId} memory updated (ADJUSTED)")
+                if ENABLE_CONFIDENCE_GATE:
+                    confidence_result = parse_confidence(user_response)
+                    user_response_clean = strip_confidence_section(user_response)
                 else:
-                    print(f"⛔ [Error] User {userId} failed to generate adjusted update")
+                    user_response_clean = user_response
+            else:
+                user_response_clean = user_response
 
+            # 提取 proposed intro 文本
+            proposed_intro = user_response_clean.split("My updated self-introduction:")[-1].strip()
 
+            if ENABLE_ATTRIBUTE_GUIDANCE and ENABLE_MEMORY_GATING and round_num >= GATING_START_ROUND:
+                conf = confidence_result["confidence"] if confidence_result else 0.5
+
+                if ENABLE_ASYMMETRIC_GATE:
+                    # P1: 两阶段非对称门控
+                    gate_result = evaluate_asymmetric_gate(
+                        userId, round_num, extracted_attrs, is_choice_right,
+                        confidence_score=conf
+                    )
+                    gate_score = gate_result['gate_score']
+                    threshold = gate_result['threshold']
+                    new_dims = gate_result.get('new_dims', [])
+                    flip_violations = gate_result.get('flip_violations', [])
+
+                    print(f"[P1-Gate] User {userId} Round {round_num}: "
+                          f"Score={gate_score:.3f} Threshold={threshold:.2f} "
+                          f"Conf={conf:.2f} "
+                          f"NewDims={new_dims} Flips={flip_violations}")
+                else:
+                    # 回退到旧版 stability gate
+                    gate_result = evaluate_memory_gate(
+                        userId, round_num, extracted_attrs, is_choice_right,
+                        confidence_score=conf
+                    )
+                    gate_score = gate_result['gate_score']
+                    threshold = gate_result['threshold']
+                    print(f"[Gate] User {userId} Round {round_num}: "
+                          f"Score={gate_score:.3f} Threshold={threshold:.2f}")
+
+                # 保存 STM/History（使用真实 gate_score）
+                save_stm_and_history(userId, extracted_attrs, round_num,
+                                     gate_score=gate_score)
+
+                if ENABLE_SOFT_FUSION:
+                    # P3: 软着陆融合 — 三段式决策
+                    existing_intro = user_description
+                    decision, final_text = soft_fusion_memory(
+                        existing_intro, proposed_intro, gate_score
+                    )
+                    print(f"  → Decision: {decision} (score={gate_score:.3f})")
+                else:
+                    # 二元决策
+                    if gate_score >= threshold:
+                        decision = "DIRECT"
+                        final_text = proposed_intro
+                    else:
+                        decision = "REJECT"
+                        final_text = None
+
+                # 执行更新
+                if decision == "DIRECT":
+                    with open(f"{MEMORY_BASE_DIR}/user/user.{userId}", "w", encoding="utf-8") as f:
+                        f.write(proposed_intro)
+                    with open(f"{MEMORY_BASE_DIR}/user-long/user.{userId}", "a", encoding="utf-8") as f:
+                        f.write("\n=====\n" + proposed_intro)
+                    print(f"✅ [Update-{decision}] User {userId} memory updated")
+                elif decision == "FUSION":
+                    with open(f"{MEMORY_BASE_DIR}/user/user.{userId}", "w", encoding="utf-8") as f:
+                        f.write(final_text)
+                    with open(f"{MEMORY_BASE_DIR}/user-long/user.{userId}", "a", encoding="utf-8") as f:
+                        f.write("\n=====\n" + final_text)
+                    print(f"🔄 [Update-{decision}] User {userId} memory fused (score={gate_score:.3f})")
+                else:
+                    print(f"⏸️ [Reject] User {userId} Round {round_num}: "
+                          f"score={gate_score:.3f} below threshold, memory unchanged")
+
+                # 记录门控档案
+                snapshot = proposed_intro if decision == "DIRECT" else (final_text if decision == "FUSION" else "")
+                save_gate_history(userId, round_num, gate_result, is_choice_right,
+                                  user_response_clean, snapshot, decision)
+            else:
+                # 无门控或早期轮次：直接更新
+                update_user_memory(userId, user_response_clean)
+                tag = "EARLY" if round_num < GATING_START_ROUND else "NO-GATE"
+                print(f"✅ [Update-{tag}] User {userId} memory updated")
+
+                # 记录门控档案（无门控路径使用先验分数）
+                minimal_gate = {"gate_score": 1.0 if round_num < 2 else 0.9,
+                                "stm_score": 0.0, "ltm_score": 0.0}
+                save_gate_history(userId, round_num, minimal_gate, is_choice_right,
+                                  user_response_clean, proposed_intro, "DIRECT")
+
+        # ========== 物品记忆更新（不受门控影响）==========
         item_response = await async_client.call_api_async(item_prompt, model)
         if item_response:
-            # ========== 物品更新遵循相同的门控逻辑 ==========
-            if should_update:
-                # 高于门控或无门控：直接更新
-                update_item_memory(pos_itemId, neg_itemId, item_response, update_neg=update_negative_samples)
-                print(f"✅ [Update] Items {pos_itemId}/{neg_itemId} updated")
-            else:
-                # 低于门控：物品也需要调整更新（暂时直接更新，后续可扩展）
-                update_item_memory(pos_itemId, neg_itemId, item_response, update_neg=update_negative_samples)
-                print(f"✅ [Update] Items {pos_itemId}/{neg_itemId} updated (with adjusted user memory)")
+            update_item_memory(pos_itemId, neg_itemId, item_response,
+                               update_neg=update_negative_samples)
+            print(f"✅ [Update] Items {pos_itemId}/{neg_itemId} updated")
 
         print(f"✅ 用户 {userId} 第{round_num + 1}轮完成")
 
@@ -707,6 +771,11 @@ def create_prompts(user_description, list_of_item_description, pos_item_title,
                 item_prompt = item_prompt_template_true(current_memory, list_of_item_description,
                                                         pos_item_title, neg_item_title)
 
+    # P0: append confidence self-assessment prompt
+    if ENABLE_CONFIDENCE_GATE:
+        from prompt import get_confidence_prompt
+        user_prompt += get_confidence_prompt()
+
     return user_prompt, item_prompt
 # 新增------------------------------------------------------------------------------
 
@@ -724,36 +793,6 @@ def update_user_memory(userId, responseText):
         file.write(responseText)
 
 
-async def generate_adjusted_memory_update(user_response, gate_score, stm_score, ltm_score, round_num, async_client, model):
-    """
-    生成调整后的记忆更新（只在gate_score < threshold时调用）
-
-    参数:
-        user_response: 用户本轮的原始自我介绍更新文本
-        gate_score: 门控分数（0-1，当前必然 < threshold）
-        round_num: 当前轮次
-        async_client: 异步API客户端
-        model: 模型名称
-
-    返回:
-        adjusted_memory: 调整后的记忆更新内容（完整response，包含"My updated self-introduction:"前缀）
-    """
-    from prompt import adjusted_memory_prompt
-
-    # 提取"My updated self-introduction:"后的内容
-    extracted_response = user_response.split("My updated self-introduction:")[-1].strip()
-
-    # 构建prompt
-    prompt = adjusted_memory_prompt(extracted_response, gate_score, stm_score, ltm_score, round_num)
-
-    # 调用LLM
-    response = await async_client.call_api_async(prompt, model)
-
-    # 返回完整的response（包含"My updated self-introduction:"前缀）
-    # 因为update_user_memory会自动提取
-    return response
-
-
 # def update_item_memory(pos_itemId, neg_itemId, responseText, update_neg=True):
 #     """更新物品记忆"""
 #     updated_pos_item_intro = responseText.split("The updated description of the second item is: ")[-1]
@@ -768,40 +807,59 @@ async def generate_adjusted_memory_update(user_response, gate_score, stm_score, 
 #                  responseText)[1]
 #         with open(f"{MEMORY_BASE_DIR}/item/item.{neg_itemId}", "w", encoding="utf-8") as file:
 #             file.write(updated_neg_item_intro)
+# def update_item_memory(pos_itemId, neg_itemId, responseText, update_neg=True):
+#       """更新物品记忆"""
+#       if not responseText:
+#           print(f"⛔ [Item] empty responseText, skip update for {pos_itemId}/{neg_itemId}")
+#           return
+#
+#       # 临时排查：marker 缺失时打印前 300 字
+#       if "The updated description of the second item is: " not in responseText:
+#           print(f"🔍 [Item-Debug] {pos_itemId} response preview: {responseText[:300]!r}")
+#
+#       # 正样本：取 "The updated description of the second item is:" 之后的内容
+#       pos_marker = "The updated description of the second item is: "
+#       if pos_marker in responseText:
+#           updated_pos_item_intro = responseText.split(pos_marker)[-1].strip()
+#       else:
+#           print(f"⛔ [Item] missing pos marker, skip {pos_itemId}")
+#           updated_pos_item_intro = None
+#
+#       if updated_pos_item_intro:
+#           with open(f"{MEMORY_BASE_DIR}/item/item.{pos_itemId}", "w", encoding="utf-8") as f:
+#               f.write(updated_pos_item_intro)
+#
+#       if update_neg:
+#           # 负样本：取两个 marker 之间的内容
+#           parts = re.split(
+#               r"The updated description of the first item is: |The updated description of the second item is: ",
+#               responseText
+#           )
+#           if len(parts) >= 2 and parts[1].strip():
+#               updated_neg_item_intro = parts[1].strip()
+#               with open(f"{MEMORY_BASE_DIR}/item/item.{neg_itemId}", "w", encoding="utf-8") as f:
+#                   f.write(updated_neg_item_intro)
+#           else:
+#               print(f"⛔ [Item] missing neg marker or empty content, skip {neg_itemId}")
 def update_item_memory(pos_itemId, neg_itemId, responseText, update_neg=True):
-      """更新物品记忆"""
-      if not responseText:
-          print(f"⛔ [Item] empty responseText, skip update for {pos_itemId}/{neg_itemId}")
-          return
+    """更新物品记忆"""
+    parts = re.split(
+        r"The updated description of the first item is:\s*|The updated description of the second item is:\s*",
+        responseText
+    )
+    if len(parts) < 3:
+        print(f"⛔ [Item] cannot parse markers, skip {pos_itemId}/{neg_itemId}. Preview: {responseText[:300]!r}")
+        return
 
-      # 临时排查：marker 缺失时打印前 300 字
-      if "The updated description of the second item is: " not in responseText:
-          print(f"🔍 [Item-Debug] {pos_itemId} response preview: {responseText[:300]!r}")
+    updated_neg_item_intro = parts[1].strip()
+    updated_pos_item_intro = parts[2].strip()
 
-      # 正样本：取 "The updated description of the second item is:" 之后的内容
-      pos_marker = "The updated description of the second item is: "
-      if pos_marker in responseText:
-          updated_pos_item_intro = responseText.split(pos_marker)[-1].strip()
-      else:
-          print(f"⛔ [Item] missing pos marker, skip {pos_itemId}")
-          updated_pos_item_intro = None
+    with open(f"{MEMORY_BASE_DIR}/item/item.{pos_itemId}", "w", encoding="utf-8") as f:
+        f.write(updated_pos_item_intro)
 
-      if updated_pos_item_intro:
-          with open(f"{MEMORY_BASE_DIR}/item/item.{pos_itemId}", "w", encoding="utf-8") as f:
-              f.write(updated_pos_item_intro)
-
-      if update_neg:
-          # 负样本：取两个 marker 之间的内容
-          parts = re.split(
-              r"The updated description of the first item is: |The updated description of the second item is: ",
-              responseText
-          )
-          if len(parts) >= 2 and parts[1].strip():
-              updated_neg_item_intro = parts[1].strip()
-              with open(f"{MEMORY_BASE_DIR}/item/item.{neg_itemId}", "w", encoding="utf-8") as f:
-                  f.write(updated_neg_item_intro)
-          else:
-              print(f"⛔ [Item] missing neg marker or empty content, skip {neg_itemId}")
+    if update_neg:
+        with open(f"{MEMORY_BASE_DIR}/item/item.{neg_itemId}", "w", encoding="utf-8") as f:
+            f.write(updated_neg_item_intro)
 
 
 if __name__ == "__main__":
