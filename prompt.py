@@ -127,18 +127,34 @@ LONG_MEMORY_PROMPTS = {
 #     "label",           # 出版厂牌 (如 Sony, Blue Note - 某些用户有厂牌忠诚度)
 #     "mood"             # 情感/氛围 (Relaxing, Energetic, Melancholic)
 # ]
+
+
 ATTRIBUTE_DIMENSIONS = [
     "Functionality",  # 品质层次
-    "Elegance",  # 设计哲学
-    "Versatility",  # 优先关注点
-    "Comfort",  # 耐用性重视程度
-    "Color",  # 品牌偏好
-    "Uniqueness",  # 价格敏感度
-    "Detailing",  # 使用场景
-    "Pattern",  # 便携性需求
-    "Modernity",
-    "Simplicity",
+    "Protection",  # 设计哲学
+    "Aesthetics",  # 优先关注点
+    "Compatibility",  # 耐用性重视程度
+    "Durability",  # 品牌偏好
+    "Portability",  # 价格敏感度
+    "Innovation",  # 使用场景
+    "Premium Quality",  # 便携性需求
+    "Security",
 ]
+
+
+
+# ATTRIBUTE_DIMENSIONS = [
+#     "Functionality",  # 品质层次
+#     "Elegance",  # 设计哲学
+#     "Versatility",  # 优先关注点
+#     "Comfort",  # 耐用性重视程度
+#     "Color",  # 品牌偏好
+#     "Uniqueness",  # 价格敏感度
+#     "Detailing",  # 使用场景
+#     "Pattern",  # 便携性需求
+#     "Modernity",
+#     "Simplicity",
+# ]
 
 def attribute_analysis_prompt_correct(
         user_description,
@@ -273,8 +289,7 @@ def user_prompt_template_with_attr(list_of_item_description, pos_item_title, neg
  2. Keep the self-introduction under 150 words.  
  3. Be concise and clear. 
  4. Describe only the features of items you prefer or dislike, without mentioning your thought process in the self-introduction. 
- 5. Your self-introduction should be specific and personalized; avoid generic preferences.
- 6. In your self-introduction, use natural product language that a real shopper would use (e.g., "soft breathable fabrics", "relaxed everyday fit", "clean minimalist look"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). The Attribute Rationale section may reference these dimensions, but the self-introduction must sound like a shopper describing their taste, not an analyst labeling categories."""
+ 5. Your self-introduction should be specific and personalized; avoid generic preferences."""
 
 
 def user_prompt_template_true_with_attr(list_of_item_description, pos_item_title, neg_item_title, system_reason, attribute_dimensions):
@@ -304,8 +319,7 @@ def user_prompt_template_true_with_attr(list_of_item_description, pos_item_title
  2. Keep the self-introduction under 150 words. 
  3. Be concise and clear. 
  4. Describe only the features of items you prefer or dislike, without mentioning your thought process in the self-introduction. 
- 5. Your self-introduction should be specific and personalized.
- 6. In your self-introduction, use natural product language that a real shopper would use (e.g., "soft breathable fabrics", "relaxed everyday fit", "clean minimalist look"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). The Attribute Rationale section may reference these dimensions, but the self-introduction must sound like a shopper describing their taste, not an analyst labeling categories."""
+ 5. Your self-introduction should be specific and personalized."""
 
 
 def item_prompt_template_with_attr(user_description, list_of_item_description, pos_item_title, neg_item_title, system_reason, attribute_dimensions):
@@ -334,7 +348,6 @@ def item_prompt_template_with_attr(user_description, list_of_item_description, p
  3. In your descriptions, refer to user preferences collectively, avoiding specific individual references, e.g., 'the user with ... preferences/dislikes'.
  4. The updated description should not contradict the item's inherent characteristics. 
  5. The updated description should highlight distinguishing features that differentiate this item from others.
- 6. In your updated item descriptions, use natural product language (e.g., "soft breathable cotton", "slim tailored silhouette", "versatile everyday piece"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). Descriptions should read like a product listing, not a labeled feature sheet.
  Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
@@ -361,12 +374,25 @@ def item_prompt_template_true_with_attr(user_description, list_of_item_descripti
  2. Each updated description cannot exceed 50 words; be concise and clear! 
  3. In your updated descriptions, refer to preferences collectively.
  4. New features should reflect user preferences, and the updated descriptions must not contradict the inherent characteristics of the items.
- 5. In your updated item descriptions, use natural product language (e.g., "soft breathable cotton", "slim tailored silhouette", "versatile everyday piece"). Do NOT use dimension names from the Attribute Analysis (e.g., do NOT write "material_feel", "fit_type", "style_aesthetic", "occasion", "seasonality", "pattern_detail", "closure_type", "sustainability"). Descriptions should read like a product listing, not a labeled feature sheet.
  Do NOT output any analysis or reasoning. Output ONLY the two updated descriptions starting with "The updated description of the first item is:" immediately."""
 
 
 
 
+
+
+# ============= P0: LLM Confidence Self-Assessment =============
+def get_confidence_prompt():
+    return """\n\n[Confidence Assessment]
+Rate your confidence in this memory update (1-5):
+Justification: <one sentence>
+
+Scoring guide:
+5 = Strongly supported by both recent interactions and long-term preferences
+4 = Well-supported by recent evidence, consistent with history
+3 = Reasonable inference but some uncertainty
+2 = Weak signal, might be noisy or transient
+1 = Speculative, likely noise or irrelevant to long-term preferences"""
 
 
 # 创新点二---------------------------------------------------------------------------------------------------------------------------------
@@ -1127,64 +1153,240 @@ Do NOT output any analysis or reasoning. Output ONLY the two updated description
 #   """
 
 
+# def adjusted_memory_prompt(extracted_response, gate_score, stm_score, ltm_score, round_num):
+#     """
+#     生成带有属性重叠与极性分析思考的 Prompt，并严格限制反思长度。
+#     """
+#
+#     # 动态生成思考逻辑引导
+#     if round_num < 4 :
+#         thought_guidance = (
+#             f"1. **Short-term Pattern**: STM Score = {stm_score:.2f} "
+#             f"(Higher = more similar to last 3 rounds; Lower = shifting focus). "
+#             f"Briefly explain what this similarity/difference reveals."
+#         )
+#     else:
+#         thought_guidance = (
+#             f"1. **Consistency Analysis**: \n"
+#             f"   - STM Score = {stm_score:.2f} (similarity to last 3 rounds)\n"
+#             f"   - LTM Score = {ltm_score:.2f} (similarity to overall history)\n"
+#             f"   Compare: Is current focus aligned with recent trends (STM) or historical baseline (LTM)? "
+#             f"Identify if this is a temporary fluctuation or genuine preference shift."
+#         )
+#
+#     # Gate Score 的清晰描述
+#     if gate_score == 0:
+#         gate_explanation = "**Gate Score = 0**: Current focus matches NEITHER recent rounds NOR historical pattern (significant drift detected)."
+#     else:
+#         gate_explanation = f"**Gate Score = {gate_score:.2f}**: Indicates alignment with at least one memory layer (STM or LTM)."
+#
+#     # 根据 round_num 决定是否分析 LTM
+#     if round_num < 4:
+#         ltm_analysis_note = "Note: Only analyze short-term memory (STM) since round_num < 4. Do NOT analyze long-term memory (LTM) at this stage."
+#     else:
+#         ltm_analysis_note = "Note: Analyze both short-term memory (STM) and long-term memory (LTM) since round_num >= 4."
+#
+#     return f"""You are a specialized agent for maintaining user preference profiles.
+#
+#   **Context Metrics**:
+#   - **Current Round**: {round_num}
+#   - {gate_explanation}
+#   - **Similarity Scores**:
+#     - **STM (Short-term)**: {stm_score:.2f} — How similar current focus is to the last 3 rounds
+#     - **LTM (Long-term)**: {ltm_score:.2f} — How similar current focus is to overall historical pattern
+#
+#   **User's Original Update**:
+#   {extracted_response}
+#
+#   **Task**:
+#   Analyze the preference consistency/drift indicated by the similarity scores. Output the original update followed by a **highly concise** reflection.
+#
+#   **Reflection Constraints**:
+#   {thought_guidance}
+#   2. Distinguish "genuine preference shift" vs. "temporary exploration/noise".
+#   3. **LENGTH LIMIT**: Your reflection MUST be shorter than the user's original update. Keep it under 2-3 sentences max.
+#
+#   **Output Format**:
+#   My updated self-introduction:
+#   {extracted_response}
+#
+#   [Reflective Thoughts]:
+#   {ltm_analysis_note}
+#   (Concise analysis based on STM/LTM similarity scores. Must be shorter than the introduction above.)
+#   """
+# def adjusted_memory_prompt(extracted_response, gate_score, stm_score, ltm_score, round_num):
+#     """
+#     门控未通过时，让 LLM 在保留原始更新的基础上追加一段简短反思。
+#
+#     设计要点：
+#     - 不向 LLM 暴露 threshold（动态、内部）。
+#     - Round < 4 时只提 STM（LTM 尚未启用），避免「LTM=0」的误导。
+#     - 分数附自然语言解释，LLM 不需要猜测数值含义。
+#     - 反思长度用硬性句数上限约束。
+#     """
+#
+#     # ===== 1. 分数语义化标签 =====
+#     def _label(score):
+#         if score >= 0.5:
+#             return "strongly aligned"
+#         if score >= 0.2:
+#             return "partially aligned"
+#         if score > 0.0:
+#             return "weakly aligned"
+#         return "misaligned"
+#
+#     stm_label = _label(stm_score)
+#
+#     # ===== 2. 早期 vs 后期：是否引入 LTM =====
+#     if round_num < 4:
+#         memory_context = (
+#             f"- **Recent rounds (STM)**: alignment = {stm_score:.2f} ({stm_label} "
+#             f"with the user's focus in the previous 2 rounds).\n"
+#             f"- Long-term memory is not yet active at this stage (round < 4); "
+#             f"focus your reflection on short-term consistency only."
+#         )
+#         reflection_guidance = (
+#             "Reflect on whether the current update continues the user's recent focus, "
+#             "or represents an abrupt shift in attention. If the focus has changed, decide "
+#             "whether it looks like a tentative exploration or a meaningful refinement of "
+#             "what the user truly cares about."
+#         )
+#     else:
+#         ltm_label = _label(ltm_score)
+#         memory_context = (
+#             f"- **Recent rounds (STM)**: alignment = {stm_score:.2f} ({stm_label} "
+#             f"with the user's focus in the previous 2 rounds).\n"
+#             f"- **Historical pattern (LTM)**: alignment = {ltm_score:.2f} ({ltm_label} "
+#             f"with the user's long-term core interests)."
+#         )
+#         reflection_guidance = (
+#             "Compare STM vs. LTM: "
+#             "(a) both low → the user's attention has drifted away from both recent and long-term interests; "
+#             "(b) STM low but LTM moderate/high → short-term exploration that still respects core long-term interests; "
+#             "(c) STM moderate/high but LTM low → recent trend diverging from the user's established core interests. "
+#             "Identify which case applies and whether it represents genuine preference evolution or transient noise."
+#         )
+#
+#     # ===== 3. 不提 threshold，只交代「为什么要反思」=====
+#     framing = (
+#         "This update did not pass the stability check, so before committing it we want a brief "
+#         "self-reflection that flags whether the change is a stable refinement or a noisy fluctuation. "
+#         "You are NOT being asked to rewrite the introduction — just to add a short reflective note after it."
+#     )
+#
+#     return f"""You are a specialized agent for maintaining user preference profiles.
+#
+# **Context**:
+# - Current Round: {round_num}
+# {memory_context}
+#
+# **User's Original Update** (to be preserved verbatim):
+# {extracted_response}
+#
+# **Task**:
+# {framing}
+#
+# **Reflection Guidance**:
+# {reflection_guidance}
+#
+# **Hard Constraints**:
+# 1. Reproduce the original update verbatim under `My updated self-introduction:`. Do NOT edit it.
+# 2. The `[Reflective Thoughts]` block must be **at most 2 sentences** and **strictly shorter** than the original update.
+# 3. Do not invent new preferences or attributes in the reflection; only comment on stability.
+# 4. Do not mention internal scores numerically in your reflection — refer to them qualitatively (e.g., "weakly aligned with recent focus").
+#
+# **Output Format**:
+# My updated self-introduction:
+# {extracted_response}
+#
+# [Reflective Thoughts]:
+# (Your 1–2 sentence qualitative reflection here.)
+# """
 def adjusted_memory_prompt(extracted_response, gate_score, stm_score, ltm_score, round_num):
     """
-    生成带有属性重叠与极性分析思考的 Prompt，并严格限制反思长度。
+    门控未通过时，让 LLM 在保留原始更新的基础上追加一段简短反思。
+
+    设计要点：
+    - 不向 LLM 暴露 threshold（动态、内部）。
+    - Round < 4 时只提 STM（LTM 尚未启用），避免「LTM=0」的误导。
+    - 分数附自然语言解释，LLM 不需要猜测数值含义。
+    - 反思长度用硬性句数上限约束。
     """
 
-    # 动态生成思考逻辑引导
-    if round_num < 4 :
-        thought_guidance = (
-            f"1. **Short-term Pattern**: STM Score = {stm_score:.2f} "
-            f"(Higher = more similar to last 3 rounds; Lower = shifting focus). "
-            f"Briefly explain what this similarity/difference reveals."
-        )
-    else:
-        thought_guidance = (
-            f"1. **Consistency Analysis**: \n"
-            f"   - STM Score = {stm_score:.2f} (similarity to last 3 rounds)\n"
-            f"   - LTM Score = {ltm_score:.2f} (similarity to overall history)\n"
-            f"   Compare: Is current focus aligned with recent trends (STM) or historical baseline (LTM)? "
-            f"Identify if this is a temporary fluctuation or genuine preference shift."
-        )
+    # ===== 1. 分数语义化标签 =====
+    def _label(score):
+        if score >= 0.5:
+            return "strongly aligned"
+        if score >= 0.2:
+            return "partially aligned"
+        if score > 0.0:
+            return "weakly aligned"
+        return "misaligned"
 
-    # Gate Score 的清晰描述
-    if gate_score == 0:
-        gate_explanation = "**Gate Score = 0**: Current focus matches NEITHER recent rounds NOR historical pattern (significant drift detected)."
-    else:
-        gate_explanation = f"**Gate Score = {gate_score:.2f}**: Indicates alignment with at least one memory layer (STM or LTM)."
+    stm_label = _label(stm_score)
 
-    # 根据 round_num 决定是否分析 LTM
+    # ===== 2. 早期 vs 后期：是否引入 LTM =====
     if round_num < 4:
-        ltm_analysis_note = "Note: Only analyze short-term memory (STM) since round_num < 4. Do NOT analyze long-term memory (LTM) at this stage."
+        memory_context = (
+            f"- **Recent rounds (STM)**: alignment = {stm_score:.2f} ({stm_label} "
+            f"with the user's focus in the previous 2 rounds).\n"
+            f"- Long-term memory is not yet active at this stage (round < 4); "
+            f"focus your reflection on short-term consistency only."
+        )
+        reflection_guidance = (
+            "Reflect on whether the current update continues the user's recent focus, "
+            "or represents an abrupt shift in attention. If the focus has changed, decide "
+            "whether it looks like a tentative exploration or a meaningful refinement of "
+            "what the user truly cares about."
+        )
     else:
-        ltm_analysis_note = "Note: Analyze both short-term memory (STM) and long-term memory (LTM) since round_num >= 4."
+        ltm_label = _label(ltm_score)
+        memory_context = (
+            f"- **Recent rounds (STM)**: alignment = {stm_score:.2f} ({stm_label} "
+            f"with the user's focus in the previous 2 rounds).\n"
+            f"- **Historical pattern (LTM)**: alignment = {ltm_score:.2f} ({ltm_label} "
+            f"with the user's long-term core interests)."
+        )
+        reflection_guidance = (
+            "Compare STM vs. LTM: "
+            "(a) both low → the user's attention has drifted away from both recent and long-term interests; "
+            "(b) STM low but LTM moderate/high → short-term exploration that still respects core long-term interests; "
+            "(c) STM moderate/high but LTM low → recent trend diverging from the user's established core interests. "
+            "Identify which case applies and whether it represents genuine preference evolution or transient noise."
+        )
+
+    # ===== 3. 不提 threshold，只交代「为什么要反思」=====
+    framing = (
+        "This update did not pass the stability check, so before committing it we want a brief "
+        "self-reflection that flags whether the change is a stable refinement or a noisy fluctuation. "
+        "You are NOT being asked to rewrite the introduction — just to add a short reflective note after it."
+    )
 
     return f"""You are a specialized agent for maintaining user preference profiles.
 
-  **Context Metrics**:
-  - **Current Round**: {round_num}
-  - {gate_explanation}
-  - **Similarity Scores**:
-    - **STM (Short-term)**: {stm_score:.2f} — How similar current focus is to the last 3 rounds
-    - **LTM (Long-term)**: {ltm_score:.2f} — How similar current focus is to overall historical pattern
+**Context**:
+- Current Round: {round_num}
+{memory_context}
 
-  **User's Original Update**:
-  {extracted_response}
+**User's Original Update** (to be preserved verbatim):
+{extracted_response}
 
-  **Task**:
-  Analyze the preference consistency/drift indicated by the similarity scores. Output the original update followed by a **highly concise** reflection.
+**Task**:
+{framing}
 
-  **Reflection Constraints**:
-  {thought_guidance}
-  2. Distinguish "genuine preference shift" vs. "temporary exploration/noise".
-  3. **LENGTH LIMIT**: Your reflection MUST be shorter than the user's original update. Keep it under 2-3 sentences max.
+**Reflection Guidance**:
+{reflection_guidance}
 
-  **Output Format**:
-  My updated self-introduction:
-  {extracted_response}
+**Hard Constraints**:
+1. Reproduce the original update verbatim under `My updated self-introduction:`. Do NOT edit it.
+2. The `[Reflective Thoughts]` block must be **at most 2 sentences** and **strictly shorter** than the original update.
+3. Do not invent new preferences or attributes in the reflection; only comment on stability.
+4. Do not mention internal scores numerically in your reflection — refer to them qualitatively (e.g., "weakly aligned with recent focus").
 
-  [Reflective Thoughts]:
-  {ltm_analysis_note}
-  (Concise analysis based on STM/LTM similarity scores. Must be shorter than the introduction above.)
-  """
+**Output Format**:
+My updated self-introduction:
+{extracted_response}
+
+[Reflective Thoughts]:
+(Your 1–2 sentence qualitative reflection here.)
+"""
