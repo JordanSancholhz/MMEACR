@@ -3,6 +3,7 @@
 ✅ 所有路径在此集中配置，其他文件零硬编码
 ✅ 支持多数据集：CDs, All_Beauty, Cell_Phones_and_Accessories, Fashion
 """
+import os
 
 # ============= 数据集选择（主要修改这里）=============
 CURRENT_DATASET = "Fashion"
@@ -25,8 +26,9 @@ DATASETS_META = {
         "dataset_dir": "CDs",
         "user_init_template": "I enjoy listening to CDs and vinyl records very much.",
         "item_init_template": "This is a CD or vinyl record titled '{title}'.",
-        "image_dir": "dataset/CDs_images/",
-        # "image_dir": "/root/cds_images_CDs",
+        "image_dir": "/root/cds_images_CDs",
+
+
     },
     "All_Beauty": {
         "name": "All_Beauty",
@@ -44,7 +46,7 @@ DATASETS_META = {
         "dataset_dir": "Cell_Phones_and_Accessories",
         "user_init_template": "I am interested in cell phones and related accessories.",
         "item_init_template": "This is a cell phone or accessory titled '{title}'.",
-        "image_dir": "dataset/Cell_Phones_and_Accessories_images",
+        "image_dir": "/root/cds_images_cell",
     },
     # ✅ 新增 Fashion 数据集配置
     "Fashion": {
@@ -54,7 +56,7 @@ DATASETS_META = {
         "dataset_dir": "Fashion",
         "user_init_template": "I am interested in fashion and clothing products.",
         "item_init_template": "This is a fashion item titled '{title}'.",
-        "image_dir": "dataset/Fashion_images",  # 如果有图片，请修改为实际路径
+        "image_dir": "/root/cds_images_fashion",  # 如果有图片，请修改为实际路径
     }
 }
 
@@ -139,7 +141,7 @@ LOG_DIR = f"log/{DATASET_DIR}"
 
 # ============= 模型配置 =============
 candidate_num = 10
-model = "glm-4.5"
+model = "gpt-4o"
 evaluation_times = 1
 
 # ============= 训练配置 =============
@@ -147,7 +149,7 @@ update_negative_samples = True
 random_seed = NEGATIVE_SAMPLE_SEED
 save_negative_samples = True
 save_ranking_results = True
-# 断点续训配置
+# 断点续训配置c
 
 # ============= 断点续训配置 =============
 CHECKPOINT_FILE = f"log/{DATASET_DIR}/checkpoint.json"
@@ -276,9 +278,18 @@ ENABLE_SEPARATE_LTM = False
 
 # ========== UAMG 门控配置（创新点2）==========
 ENABLE_MEMORY_GATING = False  # 是否启用记忆门控
-GATING_BASE_THRESHOLD = 0.5  # 基础阈值（会自适应调整）
-GATING_EARLY_THRESHOLD = 0.7  # 早期阈值（前20次交互）
-GATING_LATE_THRESHOLD = 0.3   # 后期阈值（50次交互后）
-GATING_TRANSITION_START = 20  # 开始收紧的交互次数
-GATING_TRANSITION_END = 50    # 完全收紧的交互次数
-GATING_START_ROUND = 4
+ENABLE_CONFIDENCE_GATE = True  # P0: LLM自我评估置信度融入门控
+ENABLE_ASYMMETRIC_GATE = True  # P1: 两阶段非对称门控（新属性低门槛准入 + 旧属性翻转高门槛）
+ENABLE_SOFT_FUSION = True      # P3: 软着陆融合（DIRECT/FUSION/REJECT 三段式）
+ENABLE_SEMANTIC_GATE = False   # P2: 语义连贯性门控（需embedding服务，暂未实现）
+GATING_START_ROUND = 2  # 门控开始轮次（0-based，即第3轮起启用门控）
+# ========== 门控失败回溯配置 ==========
+# True：门控未通过时，回溯历史 gate_score 最高的轮次，复用其 user_response
+# False：维持原 ADJUSTED 路径（调用 LLM 生成软化版）
+ENABLE_ROLLBACK_ON_GATE_FAIL = os.environ.get(
+    "ENABLE_ROLLBACK_ON_GATE_FAIL", "True"
+).lower() in ("true", "1", "yes")
+
+# True：只允许从 decision == "DIRECT" 的历史轮次回滚
+# False：允许从任何历史轮次（含 ROLLBACK 自身）回滚，会有"复读机"风险
+ROLLBACK_ONLY_DIRECT = False
