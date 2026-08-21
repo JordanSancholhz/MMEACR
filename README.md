@@ -7,6 +7,12 @@ We introduce MMEACR, a Multimodal Memory-Enhanced Agent Collaboration for Recomm
   <img src="doc/MMEACR.png" alt="Logo" style="width:80%;">
 </div>
 
+MMEACR achieves great improvement in CDs, Cell Phones and Fashion in benchmark
+<div align="center">
+  <img src="doc/doc2.png" alt="Logo" style="width:80%;">
+</div>
+
+
 ## Data process
 
 You can download dataset from .......
