@@ -1,6 +1,12 @@
 # Seeing and Reflecting: Multimodal Memory-Enhanced Agent Collaboration for Recommendation
 
 ## Paper URL: https://arxiv.org/abs/2607.07108
+
+We introduce MMEACR, a Multimodal Memory-Enhanced Agent Collaboration for Recommendation
+<div align="center">
+  <img src="doc/MMEACR.png" alt="Logo" style="width:80%;">
+</div>
+
 ## Data process
 
 You can download dataset from .......
